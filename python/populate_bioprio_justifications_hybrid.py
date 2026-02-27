@@ -1383,6 +1383,10 @@ async def process_assessment(db_path: str, assessment_id: int = None,
     eppo_code = assessment_info['eppoCode']
     answers = assessment_info['answers']
     assessment_id = assessment_info['idAssessment']
+    gbif_key = assessment_info.get('gbifTaxonKey', '')
+
+    # Set up local documents for hybrid research
+    use_hybrid = copy_species_docs_to_temp(gbif_key, species_name)
 
     # Filter to specific question if requested
     if question_filter:
@@ -1444,7 +1448,8 @@ async def process_assessment(db_path: str, assessment_id: int = None,
                 question_text=answer['text'],
                 question_info=answer['info'],
                 exclude_domains=exclude_domains or [],
-                track_metrics=track_costs
+                track_metrics=track_costs,
+                use_hybrid=use_hybrid
             )
 
             # Record metrics
@@ -1535,7 +1540,8 @@ async def process_assessment(db_path: str, assessment_id: int = None,
                             question_info=pq['info'],
                             pathway_name=pathway_name,
                             exclude_domains=exclude_domains or [],
-                            track_metrics=track_costs
+                            track_metrics=track_costs,
+                            use_hybrid=use_hybrid
                         )
 
                         # Record metrics
