@@ -68,9 +68,13 @@ safe_filename <- function(doi) {
   gsub("[^A-Za-z0-9._-]+", "_", doi)
 }
 
-#' Create species folder name
-species_folder_name <- function(species) {
-  gsub("[^A-Za-z0-9]+", "_", species)
+#' Create species folder name in format: {GBIF_KEY}_{Scientific_Name}
+#' @param species Scientific name
+#' @param gbif_key GBIF taxon key
+#' @return Folder name like "11700741_Lasius_aphidicola"
+species_folder_name <- function(species, gbif_key) {
+  safe_name <- gsub("[^A-Za-z0-9]+", "_", species)
+  paste0(gbif_key, "_", safe_name)
 }
 
 #' Rate-limited pause
