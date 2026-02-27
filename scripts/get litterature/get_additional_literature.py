@@ -406,12 +406,138 @@ def find_pdf_url(paper: Paper, email: str) -> Optional[str]:
     return None
 
 
-if __name__ == "__main__":
-    log_msg("Additional Literature Fetcher")
-    log_msg(f"Semantic Scholar available: {SEMANTIC_SCHOLAR_AVAILABLE}")
-    log_msg(f"CORE API key loaded: {bool(CORE_API_KEY)}")
+# =============================================================================
+# MAIN PROCESSING
+# =============================================================================
 
-    # Test database loading
+def process_species(species: Species, base_dir: str) -> Dict:
+    """Process a single species: search, deduplicate, download."""
+    log_msg("=" * 60)
+    log_msg(f"Processing: {species.scientific_name}")
+    log_msg(f"GBIF key: {species.gbif_key}")
+    log_msg("=" * 60)
+
+    # Get or create species folder
+    species_folder = get_or_create_species_folder(base_dir, species)
+    if not species_folder:
+        return {"species": species.scientific_name, "error": "Could not create folder"}
+
+    # Create literature_additional subfolder
+    lit_folder = species_folder / LITERATURE_SUBFOLDER
+    lit_folder.mkdir(exist_ok=True)
+
+    # Get existing DOIs to avoid re-downloading
+    existing_dois = get_existing_dois(species_folder)
+    log_msg(f"  Found {len(existing_dois)} existing PDFs")
+
+    # Search both sources
+    all_papers = []
+
+    log_msg("  Searching Semantic Scholar...")
+    ss_papers = search_semantic_scholar(species.scientific_name, MAX_RESULTS_PER_SOURCE)
+    all_papers.extend(ss_papers)
+    time.sleep(DELAY_BETWEEN_SEARCHES)
+
+    log_msg("  Searching CORE...")
+    core_papers = search_core(species.scientific_name, MAX_RESULTS_PER_SOURCE)
+    all_papers.extend(core_papers)
+
+    # Deduplicate by DOI
+    seen_dois = set()
+    unique_papers = []
+    for paper in all_papers:
+        norm_doi = normalize_doi(paper.doi)
+        if norm_doi and norm_doi not in seen_dois:
+            seen_dois.add(norm_doi)
+            unique_papers.append(paper)
+
+    log_msg(f"  Total unique papers: {len(unique_papers)}")
+
+    # Filter out already downloaded
+    new_papers = [p for p in unique_papers if normalize_doi(p.doi) not in existing_dois]
+    log_msg(f"  New papers to download: {len(new_papers)}")
+
+    # Download PDFs
+    stats = {"downloaded": 0, "failed": 0, "skipped": len(unique_papers) - len(new_papers)}
+
+    for i, paper in enumerate(new_papers, 1):
+        log_msg(f"  [{i}/{len(new_papers)}] {paper.title[:50]}...")
+
+        pdf_url = find_pdf_url(paper, UNPAYWALL_EMAIL)
+        if not pdf_url:
+            log_msg(f"    No PDF URL found")
+            stats["failed"] += 1
+            continue
+
+        filepath = lit_folder / f"{safe_filename(paper.doi)}.pdf"
+        result = download_pdf(pdf_url, filepath)
+
+        if result["success"]:
+            log_msg(f"    Downloaded ({result['size']} bytes)")
+            stats["downloaded"] += 1
+        else:
+            log_msg(f"    Failed: {result['reason']}")
+            stats["failed"] += 1
+
+        time.sleep(DELAY_BETWEEN_DOWNLOADS)
+
+    # Save metadata
+    metadata_file = lit_folder / "metadata_additional.csv"
+    with open(metadata_file, "w", encoding="utf-8") as f:
+        f.write("title,doi,year,authors,source,citations\n")
+        for paper in unique_papers:
+            title = paper.title.replace('"', '""')
+            f.write(f'"{title}","{paper.doi}",{paper.year or ""},"{paper.authors}","{paper.source}",{paper.citations}\n')
+
+    log_msg(f"  Results: {stats['downloaded']} downloaded, {stats['failed']} failed, {stats['skipped']} skipped")
+    return stats
+
+
+def main():
+    """Main entry point."""
+    log_msg("=" * 60)
+    log_msg("ADDITIONAL LITERATURE FETCHER")
+    log_msg("Sources: Semantic Scholar, CORE")
+    log_msg("=" * 60)
+
+    log_msg(f"Output path: {SPECIES_DOCS_BASE_PATH}")
+    log_msg(f"Semantic Scholar: {'Available' if SEMANTIC_SCHOLAR_AVAILABLE else 'Not installed'}")
+    log_msg(f"CORE API key: {'Loaded' if CORE_API_KEY else 'Not found'}")
+
+    if not SEMANTIC_SCHOLAR_AVAILABLE and not CORE_API_KEY:
+        log_msg("No sources available. Install semanticscholar or add CORE API key.")
+        return
+
+    # Load species from database
     species_list = get_species_from_database(DATABASE_PATH)
-    for sp in species_list[:3]:
-        log_msg(f"  - {sp.scientific_name} (GBIF: {sp.gbif_key})")
+    if not species_list:
+        log_msg("No species found in database")
+        return
+
+    log_msg(f"\nProcessing {len(species_list)} species...")
+
+    # Process each species
+    total_stats = {"downloaded": 0, "failed": 0, "skipped": 0}
+
+    for species in species_list:
+        stats = process_species(species, SPECIES_DOCS_BASE_PATH)
+        if "error" not in stats:
+            total_stats["downloaded"] += stats["downloaded"]
+            total_stats["failed"] += stats["failed"]
+            total_stats["skipped"] += stats["skipped"]
+
+        time.sleep(2)  # Pause between species
+
+    # Final summary
+    log_msg("")
+    log_msg("=" * 60)
+    log_msg("FINAL SUMMARY")
+    log_msg("=" * 60)
+    log_msg(f"Total downloaded: {total_stats['downloaded']}")
+    log_msg(f"Total failed: {total_stats['failed']}")
+    log_msg(f"Total skipped (already had): {total_stats['skipped']}")
+    log_msg("Done!")
+
+
+if __name__ == "__main__":
+    main()
