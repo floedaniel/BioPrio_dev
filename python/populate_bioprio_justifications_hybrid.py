@@ -1,18 +1,20 @@
 """
-BioPRIO Database Justification Populator
+BioPRIO Database Justification Populator (Hybrid Research Version)
 
-Adapted from FinnPRIO for terrestrial invertebrates. Only terminology changes:
-- "pest" → "species"
-- "host plants" → "hosts, prey, or habitats"
-- Norwegian/Nordic climate context
+Adapted from FinnPRIO for terrestrial invertebrates. Uses HYBRID research mode
+that combines web search with local PDF documents for each species.
 
 Key features:
+- HYBRID RESEARCH: Combines web search with local PDF documents
+- Local docs loaded from Species/{GBIF_KEY}_{Scientific_Name}/ folder
+- Falls back to web-only if no local docs found
 - Copies entire database (preserves complete structure)
 - Appends AI justifications to answers table
 - Handles pathway questions for EACH selected pathway
 - Clean plain text output (no markdown)
 - Question-specific instructions
 - Domain exclusions
+- Full cost tracking with Excel export
 """
 
 import os
@@ -71,6 +73,19 @@ SPECIES_FILTER = []
 # Example: QUESTION_FILTER = "EST2"  # Only process EST2
 # Pathway questions: "ENT2A", "ENT2B", "ENT3", "ENT4"
 QUESTION_FILTER = None
+
+# =============================================================================
+# HYBRID RESEARCH - LOCAL DOCUMENTS CONFIGURATION
+# =============================================================================
+
+# Base path where species folders with PDFs are stored
+SPECIES_DOCS_BASE_PATH = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\VKM Data\27.02.2025_maur_forprosjekt_biologisk_mangfold\data\species"
+
+# Temp folder name for GPT Researcher local docs (created in script directory)
+TEMP_DOCS_FOLDER = "my-docs"
+
+# File extensions to include in hybrid research
+DOCUMENT_EXTENSIONS = {".pdf", ".txt", ".docx", ".doc"}
 
 # =============================================================================
 # API Keys - Read from files
