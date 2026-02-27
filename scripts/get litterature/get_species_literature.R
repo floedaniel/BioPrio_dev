@@ -483,6 +483,10 @@ process_species <- function(species, base_dir, email, max_results, from_date, gb
     log_msg("Created new folder: ", basename(species_dir))
   }
 
+  # Create literature subfolder for PDFs (keeps species folder organized)
+  literature_dir <- file.path(species_dir, "literature")
+  if (!dir.exists(literature_dir)) dir.create(literature_dir, recursive = TRUE)
+
   # Search for literature
   log_msg("Searching databases...")
   results <- search_all_sources(species, limit = max_results, from_date = from_date)
@@ -540,7 +544,7 @@ process_species <- function(species, base_dir, email, max_results, from_date, gb
     log_msg("[", i, "/", nrow(results), "] ", str_trunc(title, 50))
 
     # Check if already downloaded
-    filepath <- file.path(species_dir, paste0(safe_filename(doi), ".pdf"))
+    filepath <- file.path(literature_dir, paste0(safe_filename(doi), ".pdf"))
     if (file.exists(filepath) && file.info(filepath)$size > 1024) {
       log_msg("  -> Already downloaded, skipping")
       download_log <- bind_rows(download_log, tibble(
