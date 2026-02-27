@@ -583,12 +583,21 @@ log_msg("")
 all_logs <- list()
 
 for (species in species_list) {
+  log_msg("Looking up GBIF key for: ", species)
+  gbif_key <- get_gbif_key(species)
+
+  if (is.null(gbif_key)) {
+    log_msg("⚠️ Skipping ", species, " - no GBIF key found")
+    next
+  }
+
   species_log <- process_species(
     species = species,
     base_dir = base_output_dir,
     email = unpaywall_email,
     max_results = max_results_per_source,
-    from_date = search_from_date
+    from_date = search_from_date,
+    gbif_key = gbif_key
   )
 
   if (!is.null(species_log)) {
