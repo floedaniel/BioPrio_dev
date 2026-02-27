@@ -19,13 +19,6 @@ from datetime import datetime
 
 import requests
 
-try:
-    from semanticscholar import SemanticScholar
-    SEMANTIC_SCHOLAR_AVAILABLE = True
-except ImportError:
-    SEMANTIC_SCHOLAR_AVAILABLE = False
-    print("Warning: semanticscholar not installed. Install with: pip install semanticscholar")
-
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
@@ -201,59 +194,73 @@ def get_existing_dois(species_folder: Path) -> Set[str]:
 
 
 # =============================================================================
-# SEMANTIC SCHOLAR SEARCH
+# SEMANTIC SCHOLAR SEARCH (using REST API directly for reliability)
 # =============================================================================
 
 def search_semantic_scholar(species_name: str, limit: int = 100) -> List[Paper]:
-    """Search Semantic Scholar for papers about a species."""
-    if not SEMANTIC_SCHOLAR_AVAILABLE:
-        log_msg("  Semantic Scholar not available")
-        return []
-
+    """Search Semantic Scholar for papers about a species using REST API."""
     try:
-        sch = SemanticScholar()
-        results = sch.search_paper(
-            species_name,
-            limit=limit,
-            fields=["title", "authors", "year", "externalIds", "citationCount", "isOpenAccess", "openAccessPdf"]
-        )
+        url = "https://api.semanticscholar.org/graph/v1/paper/search"
+        params = {
+            "query": species_name,
+            "limit": min(limit, 100),  # API max is 100 per request
+            "fields": "title,authors,year,externalIds,citationCount,isOpenAccess,openAccessPdf"
+        }
+
+        response = requests.get(url, params=params, timeout=30)
+
+        if response.status_code == 429:
+            log_msg("  Semantic Scholar: rate limited, skipping")
+            return []
+
+        if response.status_code != 200:
+            log_msg(f"  Semantic Scholar: HTTP {response.status_code}")
+            return []
+
+        data = response.json()
+        results = data.get("data", [])
 
         papers = []
-        for paper in results:
+        for item in results:
             # Extract DOI
             doi = None
-            if paper.externalIds:
-                doi = paper.externalIds.get("DOI")
+            external_ids = item.get("externalIds") or {}
+            doi = external_ids.get("DOI")
 
             if not doi:
                 continue  # Skip papers without DOI
 
             # Extract PDF URL if available
             pdf_url = None
-            if paper.openAccessPdf:
-                pdf_url = paper.openAccessPdf.get("url")
+            oa_pdf = item.get("openAccessPdf")
+            if oa_pdf:
+                pdf_url = oa_pdf.get("url")
 
             # Format authors
             authors = ""
-            if paper.authors:
-                author_names = [a.name for a in paper.authors[:3] if a.name]
+            author_list = item.get("authors") or []
+            if author_list:
+                author_names = [a.get("name", "") for a in author_list[:3] if a.get("name")]
                 authors = ", ".join(author_names)
-                if len(paper.authors) > 3:
+                if len(author_list) > 3:
                     authors += " et al."
 
             papers.append(Paper(
-                title=paper.title or "",
+                title=item.get("title") or "",
                 doi=doi,
-                year=paper.year,
+                year=item.get("year"),
                 authors=authors,
                 source="SemanticScholar",
                 pdf_url=pdf_url,
-                citations=paper.citationCount or 0
+                citations=item.get("citationCount") or 0
             ))
 
         log_msg(f"  Semantic Scholar: found {len(papers)} papers with DOIs")
         return papers
 
+    except requests.Timeout:
+        log_msg("  Semantic Scholar: timeout")
+        return []
     except Exception as e:
         log_msg(f"  Semantic Scholar error: {e}")
         return []
@@ -501,12 +508,8 @@ def main(species_filter: List[str] = None):
     log_msg("=" * 60)
 
     log_msg(f"Output path: {SPECIES_DOCS_BASE_PATH}")
-    log_msg(f"Semantic Scholar: {'Available' if SEMANTIC_SCHOLAR_AVAILABLE else 'Not installed'}")
+    log_msg(f"Semantic Scholar: Available (REST API)")
     log_msg(f"CORE API key: {'Loaded' if CORE_API_KEY else 'Not found'}")
-
-    if not SEMANTIC_SCHOLAR_AVAILABLE and not CORE_API_KEY:
-        log_msg("No sources available. Install semanticscholar or add CORE API key.")
-        return
 
     # Load species from database
     species_list = get_species_from_database(DATABASE_PATH)
