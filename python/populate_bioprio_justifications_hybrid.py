@@ -526,6 +526,113 @@ def clean_markdown_formatting(text: str) -> str:
     return text
 
 # =============================================================================
+# LOCAL DOCUMENT FUNCTIONS
+# =============================================================================
+
+def find_species_docs_folder(gbif_key: str, scientific_name: str) -> Optional[Path]:
+    """Find the species folder matching {GBIF_KEY}_{Scientific_Name} pattern.
+
+    Args:
+        gbif_key: GBIF taxon key (e.g., "11700741")
+        scientific_name: Species name (e.g., "Lasius aphidicola")
+
+    Returns:
+        Path to folder if found, None otherwise.
+    """
+    if not gbif_key or not scientific_name:
+        return None
+
+    base_path = Path(SPECIES_DOCS_BASE_PATH)
+    if not base_path.exists():
+        print(f"  ⚠️  Species docs base path not found: {SPECIES_DOCS_BASE_PATH}")
+        return None
+
+    # Build expected folder name: {gbif_key}_{scientific_name_with_underscores}
+    safe_name = scientific_name.replace(" ", "_")
+    expected_folder = f"{gbif_key}_{safe_name}"
+
+    # Try exact match first
+    exact_path = base_path / expected_folder
+    if exact_path.exists():
+        return exact_path
+
+    # Try case-insensitive search
+    for folder in base_path.iterdir():
+        if folder.is_dir() and folder.name.lower() == expected_folder.lower():
+            return folder
+
+    # Try partial match (folder starts with GBIF key)
+    for folder in base_path.iterdir():
+        if folder.is_dir() and folder.name.startswith(f"{gbif_key}_"):
+            return folder
+
+    return None
+
+
+def copy_species_docs_to_temp(gbif_key: str, scientific_name: str) -> bool:
+    """Copy all documents from species folder to temp my-docs folder.
+
+    GPT Researcher's hybrid mode reads from a "my-docs" folder in the script directory.
+
+    Args:
+        gbif_key: GBIF taxon key
+        scientific_name: Species scientific name
+
+    Returns:
+        True if docs were copied (use hybrid mode), False otherwise (use web-only).
+    """
+    # Get script directory for temp folder location
+    script_dir = Path(__file__).parent
+    temp_path = script_dir / TEMP_DOCS_FOLDER
+
+    # Clear existing temp folder
+    if temp_path.exists():
+        shutil.rmtree(temp_path)
+    temp_path.mkdir(parents=True, exist_ok=True)
+
+    # Find species folder
+    species_path = find_species_docs_folder(gbif_key, scientific_name)
+    if not species_path:
+        print(f"  ⚠️  No local documents folder found for {gbif_key}_{scientific_name}")
+        return False
+
+    print(f"  📂 Found species docs: {species_path.name}")
+
+    # Recursively find all matching documents
+    docs_copied = 0
+    for ext in DOCUMENT_EXTENSIONS:
+        for doc_file in species_path.rglob(f"*{ext}"):
+            if doc_file.is_file():
+                # Copy to flat structure with unique names (avoid collisions)
+                dest_name = f"{docs_copied:04d}_{doc_file.name}"
+                dest_path = temp_path / dest_name
+                try:
+                    shutil.copy2(doc_file, dest_path)
+                    docs_copied += 1
+                except Exception as e:
+                    print(f"  ⚠️  Failed to copy {doc_file.name}: {e}")
+
+    if docs_copied > 0:
+        print(f"  📚 Copied {docs_copied} documents to temp folder for hybrid research")
+        return True
+    else:
+        print(f"  ⚠️  No documents found in {species_path}")
+        return False
+
+
+def cleanup_temp_docs():
+    """Remove temp my-docs folder."""
+    script_dir = Path(__file__).parent
+    temp_path = script_dir / TEMP_DOCS_FOLDER
+    if temp_path.exists():
+        try:
+            shutil.rmtree(temp_path)
+            print("🧹 Cleaned up temp documents folder")
+        except Exception as e:
+            print(f"⚠️  Failed to cleanup temp folder: {e}")
+
+
+# =============================================================================
 # DATABASE FUNCTIONS - GENERAL
 # =============================================================================
 
