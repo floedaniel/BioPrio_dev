@@ -1246,7 +1246,8 @@ Provide a clear, evidence-based justification.
 async def research_justification(species_name: str, question_code: str, question_text: str,
                                  question_info: str = "", pathway_name: str = None,
                                  exclude_domains: List[str] = None,
-                                 track_metrics: bool = True) -> Tuple[str, Optional[QuestionMetrics]]:
+                                 track_metrics: bool = True,
+                                 use_hybrid: bool = False) -> Tuple[str, Optional[QuestionMetrics]]:
     """Research a single justification using GPT Researcher.
 
     Returns:
@@ -1261,6 +1262,7 @@ async def research_justification(species_name: str, question_code: str, question
 
     if exclude_domains:
         print(f"⛔ Excluding: {', '.join(exclude_domains)}")
+    print(f"🔬 Research mode: {'hybrid (web + local docs)' if use_hybrid else 'web-only'}")
 
     # Initialize metrics
     metrics = QuestionMetrics(
@@ -1279,11 +1281,13 @@ async def research_justification(species_name: str, question_code: str, question
         domain_filter = f"\n\nIMPORTANT: Do NOT use information from: {', '.join(exclude_domains)}"
         query = query + domain_filter
 
+    report_source = "hybrid" if use_hybrid else "web"
+
     researcher = GPTResearcher(
         query=query,
         report_type="research_report",
         tone="formal",
-        report_source="web",
+        report_source=report_source,
     )
 
     try:
