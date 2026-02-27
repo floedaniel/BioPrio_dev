@@ -434,16 +434,22 @@ download_pdf <- function(url, filepath, timeout_sec = 60) {
 # -------------------- MAIN PROCESSING ---------------------------------------
 
 #' Process a single species
-process_species <- function(species, base_dir, email, max_results, from_date) {
+process_species <- function(species, base_dir, email, max_results, from_date, gbif_key = NULL) {
   log_msg("========================================")
   log_msg("Processing: ", species)
   log_msg("========================================")
 
-  # Create species folder structure
-  species_dir <- file.path(base_dir, species_folder_name(species))
-  pdf_dir <- file.path(species_dir, "pdfs")
+  # Validate GBIF key
+  if (is.null(gbif_key) || gbif_key == "") {
+    log_msg("⚠️ No GBIF key provided for ", species, " - skipping")
+    return(NULL)
+  }
+  log_msg("GBIF taxon key: ", gbif_key)
 
-  if (!dir.exists(pdf_dir)) dir.create(pdf_dir, recursive = TRUE)
+  # Create species folder (PDFs saved directly, no subfolder)
+  species_dir <- file.path(base_dir, species_folder_name(species, gbif_key))
+
+  if (!dir.exists(species_dir)) dir.create(species_dir, recursive = TRUE)
 
   # Search for literature
   log_msg("Searching databases...")
@@ -502,7 +508,7 @@ process_species <- function(species, base_dir, email, max_results, from_date) {
     log_msg("[", i, "/", nrow(results), "] ", str_trunc(title, 50))
 
     # Check if already downloaded
-    filepath <- file.path(pdf_dir, paste0(safe_filename(doi), ".pdf"))
+    filepath <- file.path(species_dir, paste0(safe_filename(doi), ".pdf"))
     if (file.exists(filepath) && file.info(filepath)$size > 1024) {
       log_msg("  -> Already downloaded, skipping")
       download_log <- bind_rows(download_log, tibble(
