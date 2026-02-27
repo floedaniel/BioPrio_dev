@@ -46,7 +46,8 @@ species_list <- c(
 )
 
 # Base output directory (each species gets a subfolder)
-base_output_dir <- "./species_literature"
+# Format: {GBIF_KEY}_{Scientific_Name} to match hybrid justification populator
+base_output_dir <- "C:/Users/dafl/OneDrive - Folkehelseinstituttet/VKM Data/27.02.2025_maur_forprosjekt_biologisk_mangfold/data/species"
 
 # Your email for Unpaywall API (required - register at unpaywall.org)
 # This is free and gives access to legal open access PDFs
