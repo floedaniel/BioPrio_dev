@@ -259,6 +259,73 @@ def search_semantic_scholar(species_name: str, limit: int = 100) -> List[Paper]:
         return []
 
 
+# =============================================================================
+# CORE SEARCH
+# =============================================================================
+
+def search_core(species_name: str, limit: int = 100) -> List[Paper]:
+    """Search CORE for open access papers about a species."""
+    if not CORE_API_KEY:
+        log_msg("  CORE API key not available")
+        return []
+
+    try:
+        url = "https://api.core.ac.uk/v3/search/works"
+        headers = {"Authorization": f"Bearer {CORE_API_KEY}"}
+        params = {
+            "q": species_name,
+            "limit": limit,
+            "scroll": "false"
+        }
+
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+
+        if response.status_code != 200:
+            log_msg(f"  CORE API error: HTTP {response.status_code}")
+            return []
+
+        data = response.json()
+        results = data.get("results", [])
+
+        papers = []
+        for item in results:
+            doi = item.get("doi")
+            if not doi:
+                continue  # Skip papers without DOI
+
+            # Get direct PDF link if available
+            pdf_url = None
+            download_url = item.get("downloadUrl")
+            if download_url and download_url.endswith(".pdf"):
+                pdf_url = download_url
+
+            # Format authors
+            authors = ""
+            author_list = item.get("authors", [])
+            if author_list:
+                author_names = [a.get("name", "") for a in author_list[:3] if a.get("name")]
+                authors = ", ".join(author_names)
+                if len(author_list) > 3:
+                    authors += " et al."
+
+            papers.append(Paper(
+                title=item.get("title", ""),
+                doi=doi,
+                year=item.get("yearPublished"),
+                authors=authors,
+                source="CORE",
+                pdf_url=pdf_url,
+                citations=0  # CORE doesn't provide citation counts
+            ))
+
+        log_msg(f"  CORE: found {len(papers)} papers with DOIs")
+        return papers
+
+    except Exception as e:
+        log_msg(f"  CORE error: {e}")
+        return []
+
+
 if __name__ == "__main__":
     log_msg("Additional Literature Fetcher")
     log_msg(f"Semantic Scholar available: {SEMANTIC_SCHOLAR_AVAILABLE}")
