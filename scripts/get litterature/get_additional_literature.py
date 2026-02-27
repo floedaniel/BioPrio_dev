@@ -137,6 +137,57 @@ def get_species_from_database(db_path: str) -> List[Species]:
     return species_list
 
 
+# =============================================================================
+# FOLDER MANAGEMENT
+# =============================================================================
+
+def find_existing_species_folder(base_dir: str, gbif_key: str) -> Optional[Path]:
+    """Find existing species folder by GBIF key prefix."""
+    base_path = Path(base_dir)
+    if not base_path.exists():
+        return None
+
+    prefix = f"{gbif_key}_"
+    for folder in base_path.iterdir():
+        if folder.is_dir() and folder.name.startswith(prefix):
+            return folder
+
+    return None
+
+
+def get_or_create_species_folder(base_dir: str, species: Species) -> Optional[Path]:
+    """Get existing or create new species folder."""
+    # Try to find existing folder
+    existing = find_existing_species_folder(base_dir, species.gbif_key)
+    if existing:
+        log_msg(f"  Using existing folder: {existing.name}")
+        return existing
+
+    # Create new folder
+    safe_name = re.sub(r"[^A-Za-z0-9]+", "_", species.scientific_name)
+    folder_name = f"{species.gbif_key}_{safe_name}"
+    folder_path = Path(base_dir) / folder_name
+    folder_path.mkdir(parents=True, exist_ok=True)
+    log_msg(f"  Created new folder: {folder_name}")
+    return folder_path
+
+
+def get_existing_dois(species_folder: Path) -> Set[str]:
+    """Get set of DOIs already downloaded (from both literature folders)."""
+    existing_dois = set()
+
+    # Check both literature/ and literature_additional/
+    for subfolder in ["literature", LITERATURE_SUBFOLDER]:
+        lit_path = species_folder / subfolder
+        if lit_path.exists():
+            for pdf_file in lit_path.glob("*.pdf"):
+                # Extract DOI from filename (files are named {doi}.pdf)
+                doi = pdf_file.stem.replace("_", "/")
+                existing_dois.add(normalize_doi(doi))
+
+    return existing_dois
+
+
 if __name__ == "__main__":
     log_msg("Additional Literature Fetcher")
     log_msg(f"Semantic Scholar available: {SEMANTIC_SCHOLAR_AVAILABLE}")
