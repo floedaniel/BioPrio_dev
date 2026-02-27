@@ -326,6 +326,86 @@ def search_core(species_name: str, limit: int = 100) -> List[Paper]:
         return []
 
 
+# =============================================================================
+# PDF RETRIEVAL
+# =============================================================================
+
+def get_unpaywall_pdf_url(doi: str, email: str) -> Optional[str]:
+    """Get PDF URL from Unpaywall."""
+    try:
+        url = f"https://api.unpaywall.org/v2/{requests.utils.quote(doi, safe='')}?email={email}"
+        response = requests.get(url, timeout=10)
+
+        if response.status_code != 200:
+            return None
+
+        data = response.json()
+
+        # Try best OA location first
+        best_oa = data.get("best_oa_location")
+        if best_oa and best_oa.get("url_for_pdf"):
+            return best_oa["url_for_pdf"]
+
+        # Fall back to any OA location with PDF
+        for loc in data.get("oa_locations", []):
+            if loc.get("url_for_pdf"):
+                return loc["url_for_pdf"]
+
+        return None
+
+    except Exception:
+        return None
+
+
+def download_pdf(url: str, filepath: Path, timeout: int = 60) -> Dict:
+    """Download PDF with validation."""
+    try:
+        headers = {"User-Agent": "BioPRIO-LitFetcher/1.0 (literature retrieval)"}
+        response = requests.get(url, headers=headers, timeout=timeout, stream=True)
+
+        if response.status_code != 200:
+            return {"success": False, "reason": f"HTTP {response.status_code}"}
+
+        # Write to file
+        with open(filepath, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+
+        # Validate file size
+        file_size = filepath.stat().st_size
+        if file_size < 1024:
+            filepath.unlink()
+            return {"success": False, "reason": "File too small"}
+
+        # Check PDF magic bytes
+        with open(filepath, "rb") as f:
+            header = f.read(5)
+            if header != b"%PDF-":
+                filepath.unlink()
+                return {"success": False, "reason": "Not a PDF file"}
+
+        return {"success": True, "reason": "OK", "size": file_size}
+
+    except Exception as e:
+        if filepath.exists():
+            filepath.unlink()
+        return {"success": False, "reason": str(e)}
+
+
+def find_pdf_url(paper: Paper, email: str) -> Optional[str]:
+    """Try to find PDF URL from multiple sources."""
+    # Use paper's own PDF URL if available (from Semantic Scholar or CORE)
+    if paper.pdf_url:
+        return paper.pdf_url
+
+    # Try Unpaywall
+    url = get_unpaywall_pdf_url(paper.doi, email)
+    if url:
+        return url
+
+    return None
+
+
 if __name__ == "__main__":
     log_msg("Additional Literature Fetcher")
     log_msg(f"Semantic Scholar available: {SEMANTIC_SCHOLAR_AVAILABLE}")
