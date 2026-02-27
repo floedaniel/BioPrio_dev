@@ -83,6 +83,41 @@ log_msg <- function(...) {
   message("[", format(Sys.time(), "%H:%M:%S"), "] ", ...)
 }
 
+#' Get GBIF taxon key for a species
+#' @param species_name Scientific name (e.g., "Lasius aphidicola")
+#' @return GBIF usageKey as character, or NULL if not found
+get_gbif_key <- function(species_name) {
+  tryCatch({
+    # Query GBIF backbone taxonomy
+    result <- name_backbone(name = species_name, rank = "species", strict = FALSE)
+
+    if (is.null(result) || length(result) == 0) {
+      log_msg("  ⚠️ No GBIF match found for: ", species_name)
+      return(NULL)
+    }
+
+    # Check if we got a valid match
+    if (is.null(result$usageKey)) {
+      log_msg("  ⚠️ No usageKey in GBIF response for: ", species_name)
+      return(NULL)
+    }
+
+    # Check match type - warn if fuzzy
+    if (!is.null(result$matchType) && result$matchType != "EXACT") {
+      log_msg("  ℹ️ GBIF match type: ", result$matchType, " for ", species_name)
+      if (!is.null(result$canonicalName)) {
+        log_msg("  ℹ️ Matched to: ", result$canonicalName)
+      }
+    }
+
+    as.character(result$usageKey)
+
+  }, error = function(e) {
+    log_msg("  ❌ GBIF lookup error for ", species_name, ": ", e$message)
+    NULL
+  })
+}
+
 # -------------------- SEARCH FUNCTIONS --------------------------------------
 
 #' Search EuropePMC
