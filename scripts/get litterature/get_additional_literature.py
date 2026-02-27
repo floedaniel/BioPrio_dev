@@ -493,7 +493,7 @@ def process_species(species: Species, base_dir: str) -> Dict:
     return stats
 
 
-def main():
+def main(species_filter: List[str] = None):
     """Main entry point."""
     log_msg("=" * 60)
     log_msg("ADDITIONAL LITERATURE FETCHER")
@@ -513,6 +513,14 @@ def main():
     if not species_list:
         log_msg("No species found in database")
         return
+
+    # Apply species filter if provided
+    if species_filter:
+        filter_lower = [s.lower() for s in species_filter]
+        species_list = [sp for sp in species_list if sp.scientific_name.lower() in filter_lower]
+        if not species_list:
+            log_msg(f"No species matched filter: {species_filter}")
+            return
 
     log_msg(f"\nProcessing {len(species_list)} species...")
 
@@ -540,4 +548,23 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Additional Literature Fetcher for BioPRIO")
+    parser.add_argument("--db", type=str, default=DATABASE_PATH,
+                        help="Path to SQLite database")
+    parser.add_argument("--output", type=str, default=SPECIES_DOCS_BASE_PATH,
+                        help="Output directory for species folders")
+    parser.add_argument("--species", type=str, nargs="+", default=None,
+                        help="Filter by species names (e.g., --species 'Lasius aphidicola')")
+    parser.add_argument("--limit", type=int, default=MAX_RESULTS_PER_SOURCE,
+                        help="Max results per source")
+
+    args = parser.parse_args()
+
+    # Override globals with args
+    DATABASE_PATH = args.db
+    SPECIES_DOCS_BASE_PATH = args.output
+    MAX_RESULTS_PER_SOURCE = args.limit
+
+    main(species_filter=args.species)
