@@ -738,7 +738,7 @@ def get_assessment_info(db_path: str, assessment_id: int) -> Dict:
 
     # Get assessment
     cursor.execute("""
-        SELECT a.idAssessment, a.idPest, p.scientificName, p.eppoCode
+        SELECT a.idAssessment, a.idPest, p.scientificName, p.eppoCode, p.gbifTaxonKey
         FROM assessments a
         JOIN pests p ON a.idPest = p.idPest
         WHERE a.idAssessment = ?
@@ -750,7 +750,7 @@ def get_assessment_info(db_path: str, assessment_id: int) -> Dict:
         conn.close()
         return None
 
-    assessment_id, pest_id, species_name, eppo_code = result
+    assessment_id, pest_id, species_name, eppo_code, gbif_key = result
 
     # Get ALL questions (not dependent on existing answers)
     cursor.execute("""
@@ -810,6 +810,7 @@ def get_assessment_info(db_path: str, assessment_id: int) -> Dict:
         'idPest': pest_id,
         'scientificName': species_name,
         'eppoCode': eppo_code,
+        'gbifTaxonKey': gbif_key or "",
         'answers': answers
     }
 
