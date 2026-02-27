@@ -1601,12 +1601,14 @@ async def main(source_db: str = DEFAULT_DB_PATH,
         track_costs = ENABLE_COST_TRACKING
 
     print("\n" + "=" * 80)
-    print("BioPRIO JUSTIFICATION POPULATOR")
+    print("BioPRIO JUSTIFICATION POPULATOR (HYBRID)")
     print("=" * 80)
 
     print(f"\n📂 Source Database: {source_db}")
     print(f"📂 Skip existing justifications: {skip_existing}")
     print(f"📊 Cost tracking: {'Enabled' if track_costs else 'Disabled'}")
+    print(f"🔬 Research mode: HYBRID (web + local documents)")
+    print(f"📂 Species docs path: {SPECIES_DOCS_BASE_PATH}")
     if add_all_pathways:
         print(f"🛤️  Auto-add all pathways: Enabled")
 
