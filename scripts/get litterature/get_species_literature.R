@@ -77,6 +77,30 @@ species_folder_name <- function(species, gbif_key) {
   paste0(gbif_key, "_", safe_name)
 }
 
+#' Find existing species folder by GBIF key prefix
+#' Searches for folders starting with "{gbif_key}_" to handle cases where
+#' existing folders have different naming (e.g., "1315095_Formica_aserva_Forel,_1901")
+#' @param base_dir Base directory to search in
+#' @param gbif_key GBIF taxon key
+#' @return Full path to existing folder, or NULL if not found
+find_existing_species_folder <- function(base_dir, gbif_key) {
+  if (!dir.exists(base_dir)) return(NULL)
+
+  # List all directories
+  all_dirs <- list.dirs(base_dir, full.names = FALSE, recursive = FALSE)
+
+  # Find folders starting with "{gbif_key}_"
+  prefix <- paste0(gbif_key, "_")
+  matching <- all_dirs[startsWith(all_dirs, prefix)]
+
+  if (length(matching) > 0) {
+    # Return the first match (there should typically be only one)
+    return(file.path(base_dir, matching[1]))
+  }
+
+  NULL
+}
+
 #' Rate-limited pause
 rate_limit <- function(seconds) {
   Sys.sleep(seconds)
@@ -446,10 +470,18 @@ process_species <- function(species, base_dir, email, max_results, from_date, gb
   }
   log_msg("GBIF taxon key: ", gbif_key)
 
-  # Create species folder (PDFs saved directly, no subfolder)
-  species_dir <- file.path(base_dir, species_folder_name(species, gbif_key))
+  # Check for existing folder with this GBIF key (may have different naming)
+  existing_folder <- find_existing_species_folder(base_dir, gbif_key)
 
-  if (!dir.exists(species_dir)) dir.create(species_dir, recursive = TRUE)
+  if (!is.null(existing_folder)) {
+    species_dir <- existing_folder
+    log_msg("Using existing folder: ", basename(species_dir))
+  } else {
+    # Create new folder with standard naming
+    species_dir <- file.path(base_dir, species_folder_name(species, gbif_key))
+    dir.create(species_dir, recursive = TRUE)
+    log_msg("Created new folder: ", basename(species_dir))
+  }
 
   # Search for literature
   log_msg("Searching databases...")
