@@ -90,9 +90,59 @@ def normalize_doi(doi: str) -> str:
 CORE_API_KEY = load_api_key(CORE_API_KEY_FILE)
 
 
+# =============================================================================
+# DATA CLASSES
+# =============================================================================
+
+@dataclass
+class Species:
+    """Species information from database."""
+    scientific_name: str
+    gbif_key: str
+    eppo_code: str = ""
+
+
+# =============================================================================
+# DATABASE FUNCTIONS
+# =============================================================================
+
+def get_species_from_database(db_path: str) -> List[Species]:
+    """Get all species with GBIF keys from the database."""
+    if not Path(db_path).exists():
+        log_msg(f"Database not found: {db_path}")
+        return []
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT DISTINCT p.scientificName, p.gbifTaxonKey, p.eppoCode
+        FROM pests p
+        WHERE p.gbifTaxonKey IS NOT NULL AND p.gbifTaxonKey != ''
+        ORDER BY p.scientificName
+    """)
+
+    species_list = []
+    for row in cursor.fetchall():
+        scientific_name, gbif_key, eppo_code = row
+        if scientific_name and gbif_key:
+            species_list.append(Species(
+                scientific_name=scientific_name,
+                gbif_key=str(gbif_key),
+                eppo_code=eppo_code or ""
+            ))
+
+    conn.close()
+    log_msg(f"Loaded {len(species_list)} species from database")
+    return species_list
+
+
 if __name__ == "__main__":
     log_msg("Additional Literature Fetcher")
-    log_msg(f"Species docs path: {SPECIES_DOCS_BASE_PATH}")
-    log_msg(f"Database path: {DATABASE_PATH}")
     log_msg(f"Semantic Scholar available: {SEMANTIC_SCHOLAR_AVAILABLE}")
     log_msg(f"CORE API key loaded: {bool(CORE_API_KEY)}")
+
+    # Test database loading
+    species_list = get_species_from_database(DATABASE_PATH)
+    for sp in species_list[:3]:
+        log_msg(f"  - {sp.scientific_name} (GBIF: {sp.gbif_key})")
