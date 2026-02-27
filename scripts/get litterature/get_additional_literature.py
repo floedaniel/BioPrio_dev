@@ -102,6 +102,18 @@ class Species:
     eppo_code: str = ""
 
 
+@dataclass
+class Paper:
+    """Paper information from search results."""
+    title: str
+    doi: str
+    year: Optional[int] = None
+    authors: str = ""
+    source: str = ""
+    pdf_url: Optional[str] = None
+    citations: int = 0
+
+
 # =============================================================================
 # DATABASE FUNCTIONS
 # =============================================================================
@@ -186,6 +198,65 @@ def get_existing_dois(species_folder: Path) -> Set[str]:
                 existing_dois.add(normalize_doi(doi))
 
     return existing_dois
+
+
+# =============================================================================
+# SEMANTIC SCHOLAR SEARCH
+# =============================================================================
+
+def search_semantic_scholar(species_name: str, limit: int = 100) -> List[Paper]:
+    """Search Semantic Scholar for papers about a species."""
+    if not SEMANTIC_SCHOLAR_AVAILABLE:
+        log_msg("  Semantic Scholar not available")
+        return []
+
+    try:
+        sch = SemanticScholar()
+        results = sch.search_paper(
+            species_name,
+            limit=limit,
+            fields=["title", "authors", "year", "externalIds", "citationCount", "isOpenAccess", "openAccessPdf"]
+        )
+
+        papers = []
+        for paper in results:
+            # Extract DOI
+            doi = None
+            if paper.externalIds:
+                doi = paper.externalIds.get("DOI")
+
+            if not doi:
+                continue  # Skip papers without DOI
+
+            # Extract PDF URL if available
+            pdf_url = None
+            if paper.openAccessPdf:
+                pdf_url = paper.openAccessPdf.get("url")
+
+            # Format authors
+            authors = ""
+            if paper.authors:
+                author_names = [a.name for a in paper.authors[:3] if a.name]
+                authors = ", ".join(author_names)
+                if len(paper.authors) > 3:
+                    authors += " et al."
+
+            papers.append(Paper(
+                title=paper.title or "",
+                doi=doi,
+                year=paper.year,
+                authors=authors,
+                source="SemanticScholar",
+                pdf_url=pdf_url,
+                citations=paper.citationCount or 0
+            ))
+
+        log_msg(f"  Semantic Scholar: found {len(papers)} papers with DOIs")
+        return papers
+
+    except Exception as e:
+        log_msg(f"  Semantic Scholar error: {e}")
+        return []
 
 
 if __name__ == "__main__":
