@@ -13,6 +13,8 @@ BioPRIO uses Monte Carlo simulations to assess invasion risk based on four modul
 | **IMP** (Impact) | Economic and environmental/social impact potential |
 | **MAN** (Management) | Preventability and controllability |
 
+The application produces risk assessments for Norway, adapted from the original Finnish Food Authority model.
+
 ## Requirements
 
 - **R** (>= 4.0)
@@ -37,6 +39,13 @@ source("START_APP.R")
 ### Database Selection
 
 On startup, select a SQLite database file (`.db` or `.sqlite`) containing species and assessment data.
+
+### Key Features
+
+- Multi-user database with concurrent access control
+- Monte Carlo simulations using PERT distributions
+- Word document report generation
+- Entry pathway assessment with multiple pathways
 
 ## Project Structure
 
@@ -141,7 +150,6 @@ Risk scores are calculated as:
 - Original paper: Heikkilä et al. (2016) Biological Invasions 18:1827-1842
 - CBD Pathways: https://www.eea.europa.eu/policy-documents/cbd-2014-pathways-of-introduction
 
-## License
 
 Internal use - Norwegian Institute of Public Health (FHI) / VKM
 

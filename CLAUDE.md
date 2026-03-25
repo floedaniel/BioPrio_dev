@@ -412,6 +412,13 @@ Python scripts for automatically generating justifications, populating values, a
 **Literature Fetching:**
 - `get_additional_literature.py`: Fetches papers from Semantic Scholar and CORE APIs
 
+**Instructions System (v2.0):**
+- `parse_rmd_instructions.py`: Parses Rmd to structured JSON with options and guidance
+- `instructions_loader.py`: Loads JSON, builds prompts for AI scripts
+- `instructions_cache/`: Cache directory for generated JSON
+
+The instructions system loads question-specific guidance from `information/Instructions_FinnPRIO_assessments.Rmd` with explicit thresholds (km², ha, kg) for accurate AI value selection.
+
 **Workflow:**
 1. Run `get_additional_literature.py` to fetch PDFs from Semantic Scholar/CORE
 2. Run R script `get_species_literature.R` to fetch PDFs from EuropePMC/PubMed/CrossRef/OpenAlex
@@ -430,3 +437,4 @@ Python scripts for automatically generating justifications, populating values, a
 - Design document: `docs/plans/2026-02-17-bioprio-terminology-design.md`
 - Original paper: Heikkilä et al. (2016) Biological Invasions 18:1827-1842
 - CBD Pathways: https://www.eea.europa.eu/policy-documents/cbd-2014-pathways-of-introduction
+- Changelog: See **CHANGELOG.md** for detailed version history

@@ -1,82 +1,68 @@
 """
-Populate FinnPRIO Min/Likely/Max Values from AI Justifications
+Populate FinnPRIO Min/Likely/Max Values from AI Justifications - LOCAL VERSION
+
+Uses Ollama (local LLM) instead of OpenAI API for ZERO COST operation.
 
 This script:
-1. Reads the AI-enhanced database (output from populate_finnprio_justifications_v3.py)
-2. For each answer with justification, uses GPT-4o to determine appropriate min/likely/max values
+1. Reads the AI-enhanced database
+2. For each answer with justification, uses local LLM to determine min/likely/max values
 3. Updates the database with selected option codes
 
+Requirements:
+    pip install openai  # Uses OpenAI-compatible API format
+    ollama pull mistral:7b-instruct  # Fast and good quality (recommended)
+
 Usage:
-    python populate_finnprio_values.py
-    python populate_finnprio_values.py --db path/to/database.db
-    python populate_finnprio_values.py --assessment-id 5
+    python populate_finnprio_values_local.py
+    python populate_finnprio_values_local.py --db path/to/database.db
+    python populate_finnprio_values_local.py --eppo-codes XYLEFA ANOLGL
 """
 
 import sqlite3
 import json
-import os
 import asyncio
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 import argparse
-from datetime import datetime
-import openai
 from openai import AsyncOpenAI
-
-# Import instructions loader for value selection prompts
-from instructions_loader import build_value_selection_prompt
 
 ################################################################################
 # CONFIGURATION - EDIT THESE SETTINGS
 ################################################################################
 
 # Skip Existing Values
-# Set to False to overwrite existing values, True to skip answers that already have values
 SKIP_EXISTING_VALUES = False
 
-# API Keys - Read from files
-OPENAI_API_KEY_FILE = r"C:\Users\dafl\Desktop\API keys\chatgpt_apikey.txt"
-TAVILY_API_KEY_FILE = r"C:\Users\dafl\Desktop\API keys\Tavily_key.txt"
+# Ollama Configuration
+OLLAMA_BASE_URL = "http://localhost:11434/v1"  # /v1 required for OpenAI-compatible API
+OLLAMA_MODEL = "qwen2.5:14b"  # Better reasoning, still fast (8.9GB, ~90% GPU)
+# Alternative models (uncomment to use):
+# OLLAMA_MODEL = "qwen2.5:7b"           # Faster, smaller (4.7GB, 100% GPU)
+# OLLAMA_MODEL = "mistral:7b-instruct"  # Good instruction following (4.4GB)
+# OLLAMA_MODEL = "llama3.2"             # Fastest, smaller (2GB)
 
-# Load API keys from files
-def load_api_key(file_path: str) -> str:
-    """Load API key from file, stripping whitespace"""
-    try:
-        with open(file_path, 'r') as f:
-            return f.read().strip()
-    except FileNotFoundError:
-        print(f"⚠️  Warning: API key file not found: {file_path}")
-        return ""
+# Performance settings
+MAX_TOKENS = 300  # Enough for JSON response
+MAX_JUSTIFICATION_LENGTH = 3000  # Keep more justification context
 
-os.environ['OPENAI_API_KEY'] = load_api_key(OPENAI_API_KEY_FILE)
-os.environ['TAVILY_API_KEY'] = load_api_key(TAVILY_API_KEY_FILE)
+# Temperature (lower = more deterministic)
+TEMPERATURE = 0.1
 
-# Database Path - CHOOSE ONE OPTION:
-#
-# OPTION 1: Manual path (uncomment and edit the line below)
-# INPUT_DATABASE = None
-INPUT_DATABASE = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\FinnPrio\FinnPRIO_development\databases\daniel_database_2026\daniel_ai_enhanced_25_02_2026.db"
-# INPUT_DATABASE = r"C:/full/path/to/your/database.db"
-#
-# OPTION 2: Auto-detect (leave INPUT_DATABASE = None)
-# Automatically finds most recent *_ai_enhanced_*.db in outputs/ folder
-#
-# OPTION 3: Command line (leave INPUT_DATABASE = None and use --db parameter)
-# python populate_finnprio_values.py --db "path/to/database.db"
+# Database Path
+INPUT_DATABASE = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\FinnPrio\FinnPRIO_development\databases\test databases\daniel_local_fast_17_02_2026.db"
 
 # Filter by EPPO codes (empty list = process all species)
-# Example: EPPOCODES_TO_POPULATE = ["XYLEFA", "ANOLGL", "DROSSU"]
 EPPOCODES_TO_POPULATE = ["ANOLHO"]
-
-# Output: Same as input (updates in place)
-# The script modifies the input database directly, adding min/likely/max values
 
 ################################################################################
 # END CONFIGURATION
 ################################################################################
 
-# Initialize OpenAI client AFTER setting API key
-client = AsyncOpenAI(api_key=os.environ['OPENAI_API_KEY'])
+# Initialize Ollama client (OpenAI-compatible API)
+client = AsyncOpenAI(
+    base_url=OLLAMA_BASE_URL,
+    api_key="ollama"  # Required but ignored by Ollama
+)
 
 
 class ValuePopulator:
@@ -100,7 +86,6 @@ class ValuePopulator:
         cursor = self.conn.cursor()
 
         if eppo_codes:
-            # Filter by EPPO codes (case-insensitive)
             placeholders = ','.join(['?' for _ in eppo_codes])
             cursor.execute(f"""
                 SELECT a.idAssessment
@@ -128,24 +113,17 @@ class ValuePopulator:
         """, assessment_ids)
         return [row['eppoCode'] for row in cursor.fetchall() if row['eppoCode']]
 
-    def get_question_options(self, id_question: int, table: str = "questions") -> List[Dict]:
-        """
-        Get question details and options from database
-
-        Returns:
-            Dict with 'question', 'options', 'type', and 'code' keys
-        """
+    def get_question_options(self, id_question: int, table: str = "questions") -> Dict:
+        """Get question details and options from database"""
         cursor = self.conn.cursor()
         if table == "questions":
-            # Include group and number to build question code
             cursor.execute(
-                'SELECT question, list, type, "group", number, subgroup FROM questions WHERE idQuestion = ?',
+                "SELECT question, list, type FROM questions WHERE idQuestion = ?",
                 (id_question,)
             )
         else:
-            # Pathway questions have group and number too
             cursor.execute(
-                'SELECT question, list, "group", number FROM pathwayQuestions WHERE idPathQuestion = ?',
+                "SELECT question, list FROM pathwayQuestions WHERE idPathQuestion = ?",
                 (id_question,)
             )
 
@@ -155,31 +133,14 @@ class ValuePopulator:
 
         question_text = row['question']
         options_json = row['list']
-
-        if table == "questions":
-            question_type = row['type'] if row['type'] else "minmax"
-            # Build question code: e.g., "ENT1" or "IMP2.1"
-            group = row['group'] or ""
-            number = row['number'] or ""
-            subgroup = row['subgroup'] or ""
-            if subgroup:
-                question_code = f"{group}{number}.{subgroup}"
-            else:
-                question_code = f"{group}{number}"
-        else:
-            question_type = "minmax"
-            # Pathway question code: e.g., "ENT2A" or "ENT3"
-            group = row['group'] or ""
-            number = row['number'] or ""
-            question_code = f"{group}{number}"
+        question_type = row['type'] if table == "questions" else "minmax"
 
         options = json.loads(options_json)
 
         return {
             'question': question_text,
             'options': options,
-            'type': question_type,
-            'code': question_code
+            'type': question_type
         }
 
     def get_pest_name(self, id_assessment: int) -> str:
@@ -195,96 +156,155 @@ class ValuePopulator:
         row = cursor.fetchone()
         return row['scientificName'] if row else "Unknown pest"
 
-    async def determine_values_with_gpt(
+    async def determine_values_with_ollama(
         self,
         pest_name: str,
         question_text: str,
         options: List[Dict],
         justification: str,
-        question_type: str = "minmax",
-        question_code: str = None
+        question_type: str = "minmax"
     ) -> Dict[str, str]:
         """
-        Use GPT-4o to determine appropriate min/likely/max values based on justification.
-
-        Args:
-            pest_name: Scientific name of the pest
-            question_text: The question text (unused, kept for compatibility)
-            options: List of option dicts with 'opt', 'text', 'points'
-            justification: The AI-generated justification to analyze
-            question_type: 'minmax' or 'boolean' (unused, derived from question_code)
-            question_code: Question code (e.g., 'ENT1') - required
-
-        Returns:
-            Dict with keys 'min', 'likely', 'max' containing option codes
+        Use local Ollama LLM to determine min/likely/max values based on justification.
         """
-        prompt = build_value_selection_prompt(question_code, pest_name, justification, options)
-        return await self._call_gpt_for_values(prompt, options)
 
-    async def _call_gpt_for_values(self, prompt: str, options: List[Dict]) -> Dict[str, str]:
-        """Call GPT API with prompt and parse response."""
+        options_text = "\n".join([
+            f"  {opt['opt'].upper()}: {opt['text']} (points: {opt['points']})"
+            for opt in options
+        ])
+
+        # Truncate long justifications to speed up inference
+        if len(justification) > MAX_JUSTIFICATION_LENGTH:
+            justification = justification[:MAX_JUSTIFICATION_LENGTH] + "..."
+
+        if question_type == "minmax":
+            # Count options to help model understand scale
+            num_options = len(options)
+
+            prompt = f"""FinnPRIO Pest Risk Assessment for: {pest_name}
+
+QUESTION: {question_text}
+
+ANSWER OPTIONS ({num_options} levels, from lowest to highest risk/likelihood):
+{options_text}
+
+SCIENTIFIC JUSTIFICATION:
+{justification}
+
+YOUR TASK:
+Analyze the justification and select THREE values that capture the uncertainty range:
+- MIN: Best-case scenario (lowest reasonable estimate given the evidence)
+- LIKELY: Most probable outcome (what the evidence most strongly supports)
+- MAX: Worst-case scenario (highest reasonable estimate given the evidence)
+
+DECISION RULES:
+1. Match specific claims in the justification to the option descriptions
+2. If justification mentions "limited", "unlikely", "rare" → lean toward lower options
+3. If justification mentions "widespread", "likely", "common" → lean toward higher options
+4. If justification mentions "uncertain", "unclear", "variable" → use wider spread (min far from max)
+5. If justification is confident → use narrow spread (min close to max)
+6. Consider Norway/Nordic cold climate context
+7. The points value indicates severity - higher points = more severe/likely
+
+RESPONSE FORMAT (JSON only, no other text):
+{{"min": "a", "likely": "b", "max": "c"}}
+
+Rules: Use option codes only (a, b, c, etc.). Ensure min <= likely <= max by points."""
+
+        else:  # boolean type
+            option_code = options[0]['opt'] if options else 'a'
+            option_text = options[0]['text'] if options else ''
+
+            prompt = f"""FinnPRIO Pest Risk Assessment for: {pest_name}
+
+YES/NO QUESTION: {option_text}
+
+SCIENTIFIC JUSTIFICATION:
+{justification}
+
+YOUR TASK:
+Determine if the evidence supports answering YES to this question.
+
+DECISION RULES:
+1. Look for explicit statements about this specific impact/effect
+2. "YES" = Clear evidence the pest would cause this impact in Norway/Nordic region
+3. "NO" = No evidence, or evidence suggests this impact would NOT occur
+4. "UNCERTAIN" = Mixed evidence or insufficient information
+
+RESPONSE FORMAT (JSON only, no other text):
+
+If YES (evidence clearly supports this):
+{{"min": "{option_code}", "likely": "{option_code}", "max": "{option_code}"}}
+
+If NO (evidence does not support this):
+{{"min": null, "likely": null, "max": null}}
+
+If UNCERTAIN (weak or conflicting evidence):
+{{"min": null, "likely": "{option_code}", "max": "{option_code}"}}"""
 
         try:
             response = await client.chat.completions.create(
-                model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
+                model=OLLAMA_MODEL,
                 messages=[
-                    {"role": "system", "content": "You are an expert in plant pest risk assessment. You analyze scientific evidence and determine appropriate risk estimates."},
+                    {"role": "system", "content": "You are an EPPO plant pest risk assessment expert using the FinnPRIO methodology for Norway. Your task is to convert scientific justifications into min/likely/max value selections. Read the justification carefully, match the evidence to the available options, and return ONLY a JSON object. Consider Nordic climate conditions. Be conservative when evidence is weak."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=float(os.getenv("TEMPERATURE", "0.1")),
-                max_tokens=int(os.getenv("LLM_MAX_TOKENS", "500"))
+                temperature=TEMPERATURE,
+                max_tokens=MAX_TOKENS,  # Limit response length for speed
             )
 
-            content = response.choices[0].message.content.strip()
+            content = response.choices[0].message.content
+            if not content:
+                print(f"  ⚠️  Empty response from model")
+                return None
+            content = content.strip()
 
-            # Extract JSON from response (in case model adds extra text)
+            # Handle DeepSeek-R1 thinking tags: <think>...</think>
+            if "</think>" in content:
+                content = content.split("</think>")[-1].strip()
+            if "<think>" in content:
+                content = content.split("<think>")[0].strip()
+
+            # Extract JSON from response
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0].strip()
             elif "```" in content:
                 content = content.split("```")[1].split("```")[0].strip()
 
-            # Parse JSON
+            # Find JSON object in response
+            start_idx = content.find('{')
+            end_idx = content.rfind('}') + 1
+            if start_idx != -1 and end_idx > start_idx:
+                content = content[start_idx:end_idx]
+            else:
+                print(f"  ⚠️  No JSON found in response: {content[:100]}...")
+                return None
+
             values = json.loads(content)
 
-            # Build mapping from points to option codes (for when GPT returns integers)
-            points_to_opt = {opt['points']: opt['opt'] for opt in options}
-            valid_opts = {opt['opt'] for opt in options}
-
-            # Convert values to lowercase and handle integers
+            # Convert to lowercase
             for key in ['min', 'likely', 'max']:
-                if key in values and values[key] is not None:
-                    val = values[key]
-                    # Handle integer responses (GPT sometimes returns points instead of letters)
-                    if isinstance(val, int):
-                        if val in points_to_opt:
-                            values[key] = points_to_opt[val]
-                        else:
-                            # Try to convert 1->a, 2->b, etc.
-                            values[key] = chr(ord('a') + val - 1) if 1 <= val <= 26 else str(val)
-                    else:
-                        values[key] = str(val).lower()
+                if key in values and values[key]:
+                    values[key] = values[key].lower()
 
-            # Validate that all keys exist and values are valid option codes
+            # Validate
             required_keys = ['min', 'likely', 'max']
             if not all(k in values for k in required_keys):
                 raise ValueError(f"Missing required keys. Got: {values.keys()}")
 
+            valid_opts = {opt['opt'] for opt in options}
             for key in required_keys:
-                # Allow None/null for boolean questions (when answer is NO)
                 if values[key] is not None and values[key] not in valid_opts:
-                    raise ValueError(f"Invalid option code '{values[key]}' for {key}. Valid options: {valid_opts}")
+                    raise ValueError(f"Invalid option code '{values[key]}' for {key}")
 
             return values
 
         except json.JSONDecodeError as e:
             print(f"  ⚠️  JSON parsing error: {e}")
-            print(f"  Response content: {content if 'content' in locals() else 'N/A'}")
+            print(f"  Response: {content[:200] if 'content' in locals() else 'N/A'}...")
             return None
         except Exception as e:
-            print(f"  ⚠️  Error determining values with GPT: {type(e).__name__}: {e}")
-            print(f"  Response content: {content if 'content' in locals() else 'N/A'}")
-            import traceback
-            traceback.print_exc()
+            print(f"  ⚠️  Error: {type(e).__name__}: {e}")
             return None
 
     def update_answer_values(self, id_answer: int, min_val: str, likely_val: str, max_val: str):
@@ -308,12 +328,7 @@ class ValuePopulator:
         self.conn.commit()
 
     def get_answers_to_populate(self) -> List[Dict]:
-        """
-        Get all answers with justification but missing min/likely/max values
-
-        Returns:
-            List of answer dicts with idAnswer, idAssessment, idQuestion, justification
-        """
+        """Get all answers with justification"""
         cursor = self.conn.cursor()
 
         where_clause = ""
@@ -343,20 +358,13 @@ class ValuePopulator:
         return results
 
     def get_pathway_answers_to_populate(self) -> List[Dict]:
-        """
-        Get all pathway answers with justification but missing min/likely/max values
-
-        Returns:
-            List of pathway answer dicts
-        """
+        """Get all pathway answers with justification"""
         cursor = self.conn.cursor()
 
         where_clause = ""
         params = []
         if self.assessment_id:
-            where_clause = """
-                AND ep.idAssessment = ?
-            """
+            where_clause = "AND ep.idAssessment = ?"
             params = [self.assessment_id]
 
         cursor.execute(f"""
@@ -384,35 +392,31 @@ class ValuePopulator:
 
     async def populate_values_for_assessment(self, assessment_id: int, skip_existing: bool = True):
         """Populate values for a single assessment"""
-        # Temporarily set assessment_id
         original_id = self.assessment_id
         self.assessment_id = assessment_id
 
         try:
-            # Get pest name for this assessment
             pest_name = self.get_pest_name(assessment_id)
             print(f"\n{'=' * 80}")
             print(f"Assessment {assessment_id}: {pest_name}")
             print(f"{'=' * 80}")
 
-            # Get answers to populate
             answers = self.get_answers_to_populate()
             pathway_answers = self.get_pathway_answers_to_populate()
 
-            # Filter out answers that already have values (if skip_existing=True)
             if skip_existing:
                 answers = [a for a in answers if not a['has_values']]
                 pathway_answers = [pa for pa in pathway_answers if not pa['has_values']]
 
             total = len(answers) + len(pathway_answers)
 
-            print(f"Found {len(answers)} regular answers to populate")
-            print(f"Found {len(pathway_answers)} pathway answers to populate")
-            print(f"Total: {total} answers\n")
+            print(f"Regular answers to populate: {len(answers)}")
+            print(f"Pathway answers to populate: {len(pathway_answers)}")
+            print(f"Total: {total}\n")
 
             if total == 0:
-                print("✅ No answers to populate!")
-                return
+                print("No answers to populate!")
+                return 0
 
             # Process regular answers
             print("=" * 80)
@@ -421,45 +425,34 @@ class ValuePopulator:
 
             for i, answer in enumerate(answers, 1):
                 id_answer = answer['idAnswer']
-                id_assessment = answer['idAssessment']
                 id_question = answer['idQuestion']
                 justification = answer['justification']
 
-                # Get pest name
-                pest_name = self.get_pest_name(id_assessment)
-
-                # Get question details
                 question_data = self.get_question_options(id_question, "questions")
                 if not question_data:
-                    print(f"[{i}/{len(answers)}] ⚠️  Question {id_question} not found, skipping")
+                    print(f"[{i}/{len(answers)}] Question {id_question} not found, skipping")
                     continue
 
                 print(f"[{i}/{len(answers)}] Processing answer {id_answer}")
-                print(f"  Pest: {pest_name}")
-                print(f"  Question ({question_data['code']}): {question_data['question'][:70]}...")
-                print(f"  Type: {question_data['type']}")
+                print(f"  Question: {question_data['question'][:60]}...")
 
-                # Determine values with GPT
-                values = await self.determine_values_with_gpt(
+                values = await self.determine_values_with_ollama(
                     pest_name=pest_name,
                     question_text=question_data['question'],
                     options=question_data['options'],
                     justification=justification,
-                    question_type=question_data['type'],
-                    question_code=question_data['code']
+                    question_type=question_data['type']
                 )
 
                 if values:
-                    # Check if all values are None (boolean NO answer)
                     if all(v is None for v in [values['min'], values['likely'], values['max']]):
-                        print(f"  Selected: NO (all values null)")
-                        print(f"  ⚠️  Skipped (boolean question answered NO)")
+                        print(f"  Selected: NO (boolean)")
                     else:
                         print(f"  Selected: min={values['min']}, likely={values['likely']}, max={values['max']}")
                         self.update_answer_values(id_answer, values['min'], values['likely'], values['max'])
-                        print(f"  ✅ Updated")
+                        print(f"  Updated")
                 else:
-                    print(f"  ⚠️  Skipped (error determining values)")
+                    print(f"  Skipped (error)")
 
                 print()
 
@@ -470,88 +463,95 @@ class ValuePopulator:
 
             for i, answer in enumerate(pathway_answers, 1):
                 id_path_answer = answer['idPathAnswer']
-                id_assessment = answer['idAssessment']
                 id_path_question = answer['idPathQuestion']
                 justification = answer['justification']
 
-                # Get pest name
-                pest_name = self.get_pest_name(id_assessment)
-
-                # Get question details
                 question_data = self.get_question_options(id_path_question, "pathwayQuestions")
                 if not question_data:
-                    print(f"[{i}/{len(pathway_answers)}] ⚠️  Pathway question {id_path_question} not found, skipping")
+                    print(f"[{i}/{len(pathway_answers)}] Pathway question {id_path_question} not found, skipping")
                     continue
 
                 print(f"[{i}/{len(pathway_answers)}] Processing pathway answer {id_path_answer}")
-                print(f"  Pest: {pest_name}")
-                print(f"  Question ({question_data['code']}): {question_data['question'][:70]}...")
+                print(f"  Question: {question_data['question'][:60]}...")
 
-                # Determine values with GPT
-                values = await self.determine_values_with_gpt(
+                values = await self.determine_values_with_ollama(
                     pest_name=pest_name,
                     question_text=question_data['question'],
                     options=question_data['options'],
                     justification=justification,
-                    question_type=question_data['type'],
-                    question_code=question_data['code']
+                    question_type=question_data['type']
                 )
 
                 if values:
-                    # Check if all values are None (boolean NO answer)
                     if all(v is None for v in [values['min'], values['likely'], values['max']]):
-                        print(f"  Selected: NO (all values null)")
-                        print(f"  ⚠️  Skipped (boolean question answered NO)")
+                        print(f"  Selected: NO (boolean)")
                     else:
                         print(f"  Selected: min={values['min']}, likely={values['likely']}, max={values['max']}")
                         self.update_pathway_answer_values(id_path_answer, values['min'], values['likely'], values['max'])
-                        print(f"  ✅ Updated")
+                        print(f"  Updated")
                 else:
-                    print(f"  ⚠️  Skipped (error determining values)")
+                    print(f"  Skipped (error)")
 
                 print()
 
-            return total  # Return number of answers processed
+            return total
 
         finally:
-            # Restore original assessment_id
             self.assessment_id = original_id
 
     async def populate_values(self, skip_existing: bool = True, eppo_codes: List[str] = None):
         """Main function to populate all missing values"""
 
         print("\n" + "=" * 80)
-        print("FinnPRIO Value Populator")
+        print("FinnPRIO Value Populator - LOCAL VERSION (Ollama)")
         print("=" * 80)
         print(f"\nDatabase: {self.db_path}")
-        print(f"Skip existing values: {skip_existing}")
+        print(f"Model: {OLLAMA_MODEL}")
+        print(f"Ollama URL: {OLLAMA_BASE_URL}")
+        print(f"Skip existing: {skip_existing}")
+        print(f"Cost: $0.00 (local LLM)")
         print()
 
         self.connect()
 
         try:
-            # Determine EPPO codes to use (command-line overrides config)
+            # Test Ollama connection
+            print("Testing Ollama connection...")
+            try:
+                test_response = await client.chat.completions.create(
+                    model=OLLAMA_MODEL,
+                    messages=[{"role": "user", "content": "Say OK"}],
+                    max_tokens=10
+                )
+                print(f"Ollama connected: {OLLAMA_MODEL}\n")
+            except Exception as e:
+                print(f"\nOllama connection failed: {e}")
+                print("\nMake sure Ollama is running:")
+                print("  1. Start Ollama: ollama serve")
+                print(f"  2. Pull model: ollama pull {OLLAMA_MODEL}")
+                return
+
+            # Determine EPPO codes
             effective_eppo_codes = eppo_codes if eppo_codes else (EPPOCODES_TO_POPULATE if EPPOCODES_TO_POPULATE else None)
 
-            # Get list of assessments to process
+            # Get assessments
             if self.assessment_id:
                 assessment_ids = [self.assessment_id]
-                print(f"ℹ️  Processing single assessment: {self.assessment_id}\n")
+                print(f"Processing single assessment: {self.assessment_id}\n")
             elif effective_eppo_codes:
                 assessment_ids = self.get_all_assessment_ids(effective_eppo_codes)
-                print(f"ℹ️  Filtering by EPPO codes: {effective_eppo_codes}")
-                print(f"    Found {len(assessment_ids)} matching assessment(s)\n")
-                # Verify all requested codes were found
+                print(f"Filtering by EPPO codes: {effective_eppo_codes}")
+                print(f"Found {len(assessment_ids)} matching assessment(s)\n")
                 if assessment_ids:
                     found_codes = self.get_eppo_codes_for_assessments(assessment_ids)
                     missing = set(c.upper() for c in effective_eppo_codes) - set(c.upper() for c in found_codes)
                     if missing:
-                        print(f"⚠️  Warning: No assessments found for EPPO codes: {missing}\n")
+                        print(f"Warning: No assessments found for EPPO codes: {missing}\n")
             else:
                 assessment_ids = self.get_all_assessment_ids()
-                print(f"ℹ️  Processing all assessments: {len(assessment_ids)} total\n")
+                print(f"Processing all assessments: {len(assessment_ids)} total\n")
 
-            # Process each assessment
+            # Process
             total_processed = 0
             for idx, aid in enumerate(assessment_ids, 1):
                 if len(assessment_ids) > 1:
@@ -563,7 +563,8 @@ class ValuePopulator:
                 total_processed += processed if processed else 0
 
             print("\n" + "=" * 80)
-            print(f"✅ All assessments complete! Total answers processed: {total_processed}")
+            print(f"All assessments complete! Total: {total_processed}")
+            print(f"Cost: $0.00")
             print("=" * 80)
 
         finally:
@@ -578,80 +579,41 @@ async def main(
 ):
     """Main entry point"""
 
-    # Use configuration value if not explicitly set via command line
     if skip_existing is None:
         skip_existing = SKIP_EXISTING_VALUES
 
-    # Use configured database path or command line argument
     if not db_path:
         db_path = INPUT_DATABASE
 
-    # Auto-detect if still not set
     if not db_path:
-        # Look for most recent AI-enhanced database in outputs folder
-        outputs_dir = Path(__file__).parent / "outputs"
-        if outputs_dir.exists():
-            ai_dbs = list(outputs_dir.glob("*_ai_enhanced_*.db"))
-            if ai_dbs:
-                # Sort by modification time, get most recent
-                db_path = str(sorted(ai_dbs, key=lambda p: p.stat().st_mtime, reverse=True)[0])
-                print(f"Auto-detected database: {db_path}")
-            else:
-                print("❌ No AI-enhanced database found in outputs folder")
-                print("   Please specify database path with --db parameter or set INPUT_DATABASE")
-                return
-        else:
-            print("❌ Outputs folder not found")
-            print("   Please specify database path with --db parameter or set INPUT_DATABASE")
-            return
-
-    # Check database exists
-    if not Path(db_path).exists():
-        print(f"❌ Database not found: {db_path}")
+        print("No database specified. Use --db parameter or set INPUT_DATABASE")
         return
 
-    # Create populator and run
+    if not Path(db_path).exists():
+        print(f"Database not found: {db_path}")
+        return
+
     populator = ValuePopulator(db_path, assessment_id)
     await populator.populate_values(skip_existing=skip_existing, eppo_codes=eppo_codes)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Populate min/likely/max values in FinnPRIO database based on AI justifications"
+        description="Populate min/likely/max values using LOCAL Ollama LLM (FREE)"
     )
-    parser.add_argument(
-        "--db",
-        type=str,
-        help="Path to AI-enhanced database (default: auto-detect most recent in outputs/)"
-    )
-    parser.add_argument(
-        "--assessment-id",
-        type=int,
-        help="Process only specific assessment ID"
-    )
-    parser.add_argument(
-        "--eppo-codes",
-        type=str,
-        nargs='+',
-        default=None,
-        help="Filter by EPPO codes (e.g., --eppo-codes XYLEFA ANOLGL)"
-    )
-    parser.add_argument(
-        "--overwrite",
-        action="store_true",
-        help=f"Overwrite existing values (default behavior: SKIP_EXISTING_VALUES={SKIP_EXISTING_VALUES})"
-    )
+    parser.add_argument("--db", type=str, help="Path to database")
+    parser.add_argument("--assessment-id", type=int, help="Process single assessment")
+    parser.add_argument("--eppo-codes", type=str, nargs='+', help="Filter by EPPO codes")
+    parser.add_argument("--overwrite", action="store_true", help="Overwrite existing values")
+    parser.add_argument("--model", type=str, default=None, help="Ollama model to use")
 
     args = parser.parse_args()
 
-    # Check for API key
-    if not os.getenv("OPENAI_API_KEY"):
-        print("❌ OPENAI_API_KEY environment variable not set")
-        print("   Please set it in your .env file or environment")
-        exit(1)
+    # Override model if specified (must use globals() since we're in __main__)
+    if args.model:
+        globals()['OLLAMA_MODEL'] = args.model
 
-    # Determine skip_existing based on command line flag or use config default
-    skip_existing = False if args.overwrite else None  # None means use config default
+    skip_existing = False if args.overwrite else None
 
     asyncio.run(main(
         db_path=args.db,

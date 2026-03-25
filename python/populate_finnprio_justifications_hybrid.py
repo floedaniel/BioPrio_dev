@@ -1,7 +1,10 @@
 """
-FinnPRIO Database Justification Populator 
+FinnPRIO Database Justification Populator (Hybrid Research Version)
 
 Key features:
+- HYBRID RESEARCH: Combines web search with local PDF documents
+- Local docs loaded from Species/{EPPO_CODE}/ folder
+- Falls back to web-only if no local docs found
 - Copies entire database (preserves complete structure)
 - Appends AI justifications to answers table
 - Handles pathway questions for EACH selected pathway
@@ -17,7 +20,7 @@ import shutil
 from pathlib import Path
 from gpt_researcher import GPTResearcher
 from datetime import datetime
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 import re
 
 # Import instructions loader (auto-generates JSON from Rmd if needed)
@@ -50,6 +53,19 @@ EPPOCODES_TO_POPULATE = ["ANOLHO"]
 # Example: QUESTION_FILTER = "EST2"  # Only process EST2
 # Pathway questions: "ENT2", "ENT2B", "ENT3", "ENT4"
 QUESTION_FILTER = "EST2"
+
+# =============================================================================
+# HYBRID RESEARCH - LOCAL DOCUMENTS CONFIGURATION
+# =============================================================================
+
+# Base path where species folders with PDFs are stored
+SPECIES_DOCS_BASE_PATH = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\VKM Data\26.08.2024_lopende_oppdrag_plantehelse\Species"
+
+# Temp folder name for GPT Researcher local docs (created in script directory)
+TEMP_DOCS_FOLDER = "my-docs"
+
+# File extensions to include in hybrid research
+DOCUMENT_EXTENSIONS = {".pdf", ".txt", ".docx", ".doc"}
 
 # =============================================================================
 # API Keys - Read from files
@@ -151,6 +167,71 @@ def clean_markdown_formatting(text: str) -> str:
     text = text.strip()
 
     return text
+
+# =============================================================================
+# LOCAL DOCUMENT FUNCTIONS
+# =============================================================================
+
+def get_species_docs_path(eppo_code: str) -> Optional[Path]:
+    """Get the species folder path for an EPPO code.
+    Returns None if folder doesn't exist."""
+    path = Path(SPECIES_DOCS_BASE_PATH) / eppo_code.upper()
+    return path if path.exists() else None
+
+
+def copy_species_docs_to_temp(eppo_code: str) -> bool:
+    """Copy all documents from species folder to temp my-docs folder.
+
+    Returns True if docs were copied, False if no docs found (fallback to web-only).
+    """
+    # Get script directory for temp folder location
+    script_dir = Path(__file__).parent
+    temp_path = script_dir / TEMP_DOCS_FOLDER
+
+    # Clear existing temp folder
+    if temp_path.exists():
+        shutil.rmtree(temp_path)
+    temp_path.mkdir(parents=True, exist_ok=True)
+
+    # Find species folder
+    species_path = get_species_docs_path(eppo_code)
+    if not species_path:
+        print(f"  ⚠️  No local documents folder found for {eppo_code}")
+        return False
+
+    # Recursively find all matching documents
+    docs_copied = 0
+    for ext in DOCUMENT_EXTENSIONS:
+        for doc_file in species_path.rglob(f"*{ext}"):
+            if doc_file.is_file():
+                # Copy to flat structure with unique names (avoid collisions)
+                dest_name = f"{docs_copied:04d}_{doc_file.name}"
+                dest_path = temp_path / dest_name
+                try:
+                    shutil.copy2(doc_file, dest_path)
+                    docs_copied += 1
+                except Exception as e:
+                    print(f"  ⚠️  Failed to copy {doc_file.name}: {e}")
+
+    if docs_copied > 0:
+        print(f"  📚 Copied {docs_copied} documents to temp folder")
+        return True
+    else:
+        print(f"  ⚠️  No documents found in {species_path}")
+        return False
+
+
+def cleanup_temp_docs():
+    """Remove temp my-docs folder."""
+    script_dir = Path(__file__).parent
+    temp_path = script_dir / TEMP_DOCS_FOLDER
+    if temp_path.exists():
+        try:
+            shutil.rmtree(temp_path)
+            print("🧹 Cleaned up temp documents folder")
+        except Exception as e:
+            print(f"⚠️  Failed to cleanup temp folder: {e}")
+
 
 # =============================================================================
 # DATABASE FUNCTIONS - GENERAL
@@ -560,7 +641,8 @@ Provide a clear, evidence-based justification.
 async def research_justification(pest_name: str, question_code: str, question_text: str,
                                  question_info: str = "", pathway_name: str = None,
                                  exclude_domains: List[str] = None,
-                                 hosts: str = None) -> str:
+                                 hosts: str = None,
+                                 use_hybrid: bool = False) -> str:
     """Research a single justification using GPT Researcher."""
 
     pathway_text = f" (Pathway: {pathway_name})" if pathway_name else ""
@@ -574,6 +656,8 @@ async def research_justification(pest_name: str, question_code: str, question_te
     if hosts:
         print(f"🌱 Hosts: {hosts[:100]}{'...' if len(hosts) > 100 else ''}")
 
+    print(f"🔬 Research mode: {'hybrid (web + local docs)' if use_hybrid else 'web-only'}")
+
     query = create_research_query(pest_name, question_code, question_text,
                                   question_info, pathway_name, hosts)
 
@@ -582,11 +666,13 @@ async def research_justification(pest_name: str, question_code: str, question_te
         domain_filter = f"\n\nIMPORTANT: Do NOT use information from: {', '.join(exclude_domains)}"
         query = query + domain_filter
 
+    report_source = "hybrid" if use_hybrid else "web"
+
     researcher = GPTResearcher(
         query=query,
-        report_type="research_report", # research_report or detailed_report
+        report_type="research_report",
         tone="formal",
-        report_source="web",
+        report_source=report_source,
     )
 
     try:
@@ -631,6 +717,8 @@ async def process_assessment(db_path: str, assessment_id: int = None,
     answers = assessment_info['answers']
     assessment_id = assessment_info['idAssessment']
     hosts = assessment_info.get('hosts', '')
+    # Set up local documents for hybrid research
+    use_hybrid = copy_species_docs_to_temp(eppo_code)
 
     if question_filter:
         # Filter to specific question code (e.g., EST2, ENT2A)
@@ -672,7 +760,8 @@ async def process_assessment(db_path: str, assessment_id: int = None,
                 question_text=answer['text'],
                 question_info=answer['info'],
                 exclude_domains=exclude_domains or [],
-                hosts=hosts
+                hosts=hosts,
+                use_hybrid=use_hybrid
             )
 
             combined = f"{existing}\n\n{ai_text}" if existing else ai_text
@@ -737,7 +826,8 @@ async def process_assessment(db_path: str, assessment_id: int = None,
                             question_info=pq['info'],
                             pathway_name=pathway_name,
                             exclude_domains=exclude_domains or [],
-                            hosts=hosts
+                            hosts=hosts,
+                            use_hybrid=use_hybrid
                         )
 
                         combined = f"{existing}\n\n{ai_text}" if existing else ai_text
@@ -831,21 +921,25 @@ async def main(source_db: str = DEFAULT_DB_PATH,
         print(f"\nℹ️  Processing all assessments: {len(assessment_ids)} total")
 
     # Process each assessment
-    for idx, aid in enumerate(assessment_ids, 1):
-        if len(assessment_ids) > 1:
-            print("\n" + "=" * 80)
-            print(f"ASSESSMENT {idx}/{len(assessment_ids)} (ID: {aid})")
-            print("=" * 80)
+    try:
+        for idx, aid in enumerate(assessment_ids, 1):
+            if len(assessment_ids) > 1:
+                print("\n" + "=" * 80)
+                print(f"ASSESSMENT {idx}/{len(assessment_ids)} (ID: {aid})")
+                print("=" * 80)
 
-        await process_assessment(
-            db_path=working_db,
-            assessment_id=aid,
-            exclude_domains=exclude_domains,
-            limit_questions=limit_questions,
-            process_pathways=process_pathways,
-            skip_existing=skip_existing,
-            question_filter=effective_question_filter
-        )
+            await process_assessment(
+                db_path=working_db,
+                assessment_id=aid,
+                exclude_domains=exclude_domains,
+                limit_questions=limit_questions,
+                process_pathways=process_pathways,
+                skip_existing=skip_existing,
+                question_filter=effective_question_filter
+            )
+    finally:
+        # Clean up temp documents folder
+        cleanup_temp_docs()
 
     print("\n" + "=" * 80)
     print("✅ COMPLETED")
