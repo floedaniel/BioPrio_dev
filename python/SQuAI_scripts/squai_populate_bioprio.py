@@ -29,6 +29,7 @@ import shutil
 import sqlite3
 import logging
 import argparse
+import importlib
 import subprocess
 from pathlib import Path
 from datetime import datetime
@@ -157,35 +158,37 @@ def get_all_assessments(db_path: str, species_filter: List[str] = None) -> List[
     for all assessments, optionally filtered by species identifiers.
     """
     conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
+    try:
+        cur = conn.cursor()
 
-    if species_filter:
-        placeholders = ",".join(["?" for _ in species_filter])
-        upper = [f.upper() for f in species_filter]
-        cur.execute(f"""
-            SELECT a.idAssessment, p.scientificName, p.eppoCode, p.gbifTaxonKey
-            FROM assessments a
-            JOIN pests p ON a.idPest = p.idPest
-            WHERE UPPER(p.eppoCode) IN ({placeholders})
-               OR UPPER(p.scientificName) IN ({placeholders})
-               OR p.gbifTaxonKey IN ({placeholders})
-            ORDER BY a.idAssessment
-        """, upper + upper + species_filter)
-    else:
-        cur.execute("""
-            SELECT a.idAssessment, p.scientificName, p.eppoCode, p.gbifTaxonKey
-            FROM assessments a
-            JOIN pests p ON a.idPest = p.idPest
-            ORDER BY a.idAssessment
-        """)
+        if species_filter:
+            placeholders = ",".join(["?" for _ in species_filter])
+            upper = [f.upper() for f in species_filter]
+            cur.execute(f"""
+                SELECT a.idAssessment, p.scientificName, p.eppoCode, p.gbifTaxonKey
+                FROM assessments a
+                JOIN pests p ON a.idPest = p.idPest
+                WHERE UPPER(p.eppoCode) IN ({placeholders})
+                   OR UPPER(p.scientificName) IN ({placeholders})
+                   OR p.gbifTaxonKey IN ({placeholders})
+                ORDER BY a.idAssessment
+            """, upper + upper + species_filter)
+        else:
+            cur.execute("""
+                SELECT a.idAssessment, p.scientificName, p.eppoCode, p.gbifTaxonKey
+                FROM assessments a
+                JOIN pests p ON a.idPest = p.idPest
+                ORDER BY a.idAssessment
+            """)
 
-    rows = cur.fetchall()
-    conn.close()
-    return [
-        {"idAssessment": r[0], "scientificName": r[1],
-         "eppoCode": r[2] or "", "gbifTaxonKey": str(r[3] or "")}
-        for r in rows
-    ]
+        rows = cur.fetchall()
+        return [
+            {"idAssessment": r[0], "scientificName": r[1],
+             "eppoCode": r[2] or "", "gbifTaxonKey": str(r[3] or "")}
+            for r in rows
+        ]
+    finally:
+        conn.close()
 
 
 def get_answer_rows(db_path: str, assessment_id: int) -> List[Dict]:
@@ -194,42 +197,44 @@ def get_answer_rows(db_path: str, assessment_id: int) -> List[Dict]:
     matching app behavior. Returns list of {idAnswer, code, existing_justification}.
     """
     conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
+    try:
+        cur = conn.cursor()
 
-    cur.execute("""
-        SELECT idQuestion, "group", number, subgroup
-        FROM questions ORDER BY idQuestion
-    """)
-    questions = cur.fetchall()
-
-    rows = []
-    created = 0
-    for id_q, grp, num, subgrp in questions:
         cur.execute("""
-            SELECT idAnswer, justification FROM answers
-            WHERE idAssessment = ? AND idQuestion = ?
-        """, (assessment_id, id_q))
-        row = cur.fetchone()
-        if row:
-            id_ans, just = row
-        else:
+            SELECT idQuestion, "group", number, subgroup
+            FROM questions ORDER BY idQuestion
+        """)
+        questions = cur.fetchall()
+
+        rows = []
+        created = 0
+        for id_q, grp, num, subgrp in questions:
             cur.execute("""
-                INSERT INTO answers (idAssessment, idQuestion, min, likely, max, justification)
-                VALUES (?, ?, '', '', '', '')
+                SELECT idAnswer, justification FROM answers
+                WHERE idAssessment = ? AND idQuestion = ?
             """, (assessment_id, id_q))
-            id_ans = cur.lastrowid
-            just = ""
-            created += 1
+            row = cur.fetchone()
+            if row:
+                id_ans, just = row
+            else:
+                cur.execute("""
+                    INSERT INTO answers (idAssessment, idQuestion, min, likely, max, justification)
+                    VALUES (?, ?, '', '', '', '')
+                """, (assessment_id, id_q))
+                id_ans = cur.lastrowid
+                just = ""
+                created += 1
 
-        code = f"{grp}{num}.{subgrp}" if subgrp else f"{grp}{num}"
-        rows.append({"idAnswer": id_ans, "code": code,
-                     "existing_justification": just or ""})
+            code = f"{grp}{num}.{subgrp}" if subgrp else f"{grp}{num}"
+            rows.append({"idAnswer": id_ans, "code": code,
+                         "existing_justification": just or ""})
 
-    if created:
-        conn.commit()
-        log.info("  Created %d answer rows", created)
-    conn.close()
-    return rows
+        if created:
+            conn.commit()
+            log.info("  Created %d answer rows", created)
+        return rows
+    finally:
+        conn.close()
 
 
 def update_answer_justification(db_path: str, id_answer: int, justification: str):
@@ -248,18 +253,20 @@ def update_answer_justification(db_path: str, id_answer: int, justification: str
 def get_assessment_pathways(db_path: str, assessment_id: int) -> List[Dict]:
     """Get selected pathways for an assessment."""
     conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT ep.idEntryPathway, ep.idPathway, p.name
-        FROM entryPathways ep
-        JOIN pathways p ON ep.idPathway = p.idPathway
-        WHERE ep.idAssessment = ?
-        ORDER BY p.idPathway
-    """, (assessment_id,))
-    rows = [{"idEntryPathway": r[0], "idPathway": r[1], "name": r[2]}
-            for r in cur.fetchall()]
-    conn.close()
-    return rows
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT ep.idEntryPathway, ep.idPathway, p.name
+            FROM entryPathways ep
+            JOIN pathways p ON ep.idPathway = p.idPathway
+            WHERE ep.idAssessment = ?
+            ORDER BY p.idPathway
+        """, (assessment_id,))
+        rows = [{"idEntryPathway": r[0], "idPathway": r[1], "name": r[2]}
+                for r in cur.fetchall()]
+        return rows
+    finally:
+        conn.close()
 
 
 def get_pathway_questions(db_path: str) -> List[Dict]:
@@ -267,50 +274,56 @@ def get_pathway_questions(db_path: str) -> List[Dict]:
     # idPathQuestion 1=ENT2A, 2=ENT2B, 3=ENT3, 4=ENT4 (hardcoded in DB)
     id_to_code = {1: "ENT2A", 2: "ENT2B", 3: "ENT3", 4: "ENT4"}
     conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT idPathQuestion, "group", number FROM pathwayQuestions ORDER BY idPathQuestion
-    """)
-    rows = [{"idPathQuestion": r[0],
-             "code": id_to_code.get(r[0], f"{r[1]}{r[2]}")}
-            for r in cur.fetchall()]
-    conn.close()
-    return rows
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT idPathQuestion, "group", number FROM pathwayQuestions ORDER BY idPathQuestion
+        """)
+        rows = [{"idPathQuestion": r[0],
+                 "code": id_to_code.get(r[0], f"{r[1]}{r[2]}")}
+                for r in cur.fetchall()]
+        return rows
+    finally:
+        conn.close()
 
 
 def get_existing_pathway_justification(db_path: str, id_entry_pathway: int,
                                        id_path_question: int) -> str:
     conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT justification FROM pathwayAnswers
-        WHERE idEntryPathway = ? AND idPathQuestion = ?
-    """, (id_entry_pathway, id_path_question))
-    result = cur.fetchone()
-    conn.close()
-    return result[0] if result and result[0] else ""
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT justification FROM pathwayAnswers
+            WHERE idEntryPathway = ? AND idPathQuestion = ?
+        """, (id_entry_pathway, id_path_question))
+        result = cur.fetchone()
+        return result[0] if result and result[0] else ""
+    finally:
+        conn.close()
 
 
 def update_pathway_justification(db_path: str, id_entry_pathway: int,
                                  id_path_question: int, justification: str):
     """Upsert justification in pathwayAnswers."""
     conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT idPathAnswer FROM pathwayAnswers
-        WHERE idEntryPathway = ? AND idPathQuestion = ?
-    """, (id_entry_pathway, id_path_question))
-    result = cur.fetchone()
-    if result:
-        cur.execute("UPDATE pathwayAnswers SET justification = ? WHERE idPathAnswer = ?",
-                    (justification, result[0]))
-    else:
+    try:
+        cur = conn.cursor()
         cur.execute("""
-            INSERT INTO pathwayAnswers (idEntryPathway, idPathQuestion, min, likely, max, justification)
-            VALUES (?, ?, '', '', '', ?)
-        """, (id_entry_pathway, id_path_question, justification))
-    conn.commit()
-    conn.close()
+            SELECT idPathAnswer FROM pathwayAnswers
+            WHERE idEntryPathway = ? AND idPathQuestion = ?
+        """, (id_entry_pathway, id_path_question))
+        result = cur.fetchone()
+        if result:
+            cur.execute("UPDATE pathwayAnswers SET justification = ? WHERE idPathAnswer = ?",
+                        (justification, result[0]))
+        else:
+            cur.execute("""
+                INSERT INTO pathwayAnswers (idEntryPathway, idPathQuestion, min, likely, max, justification)
+                VALUES (?, ?, '', '', '', ?)
+            """, (id_entry_pathway, id_path_question, justification))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 # ==============================================================================
@@ -415,7 +428,6 @@ def run_squai_for_species(
     IMPORTANT: must be subprocess (not import) — config.py reads data_dir at import time.
     """
     # Point SQuAI at the per-species corpus (import via importlib; filename starts with digit)
-    import importlib
     _corpus_mod = importlib.import_module("3_pdf_to_squai_corpus")
     _corpus_mod.set_squai_data_dir(corpus_dir)
     log.info("  Set data_dir → %s", corpus_dir)
@@ -524,7 +536,6 @@ def process_species(
 
         # ── 2. Index PDFs ─────────────────────────────────────────────────────
         # Module name starts with digit — must use importlib
-        import importlib
         _corpus_mod = importlib.import_module("3_pdf_to_squai_corpus")
         index_species = _corpus_mod.process_species
         indexed = index_species(
@@ -654,7 +665,7 @@ def main():
 
     lit_root   = Path(args.lit_root)
     corpus_dir = Path(args.corpus_dir)
-    squai_dir  = Path(args.squai_dir)
+    squai_dir  = Path(args.squai_dir).resolve()
     skip_existing = SKIP_EXISTING_JUSTIFICATION
     species_filter = [args.species] if args.species else SPECIES_FILTER
 
