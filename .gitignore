@@ -1,5 +1,6 @@
 # History files
 .Rhistory
+*.Rhistory
 .Rapp.history
 
 # Session Data files
@@ -81,6 +82,17 @@ venv/
 # Windows reserved names (cause git errors)
 nul
 _ul
+_ul*
+
+# Species literature PDFs (large binary data, not source code)
+species_literature/
+
+# Nested git repos (use submodules if needed)
+python/SQuAI_scripts/squai_repo/
+
+# Log files
+*.log
+**/logs/
 
 # Generated reports
 assessment_report_*.docx

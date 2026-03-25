@@ -1,0 +1,137 @@
+=== MAIN QUESTIONS ===
+
+[ENT1] How wide is the current global geographical distribution of the pest?
+  a. Small (points: 1)
+  b. Medium (points: 2)
+  c. Large (points: 3)
+
+[EST1] Could the pest reproduce and overwinter in the PRA area taking into account the climate and production conditions?
+  a. No it could not (points: 0)
+  b. It could, but it is unlikely (points: 1.5)
+  c. It could, and it is likely (points: 4.5)
+  d. It could, and it is very likely (points: 9)
+
+[EST2] In how large an area does the pest's suitable hosts, prey, or habitats occur in the PRA area?
+  a. Not at all (points: 0)
+  b. Very small (points: 1)
+  c. Small (points: 2)
+  d. Medium (points: 3)
+  e. Large (points: 4)
+
+[EST3] How quickly would the pest likely spread in the PRA area?
+  a. Very slowly (points: 0)
+  b. Rather slowly (points: 1)
+  c. Rather quickly (points: 2)
+  d. Quickly (points: 3)
+
+[EST4] Does the pest have characteristics that could assist in its establishment or spread in new areas?
+  a. No it does not (points: 0)
+  b. It has characteristics that could assist to some extent (points: 1)
+  c. It has characteristics that could assist to a great extent (points: 2)
+  d. It has characteristics that could assist to a very great extent (points: 3)
+
+[IMP1] How significant are the direct economic losses that the pest would cause in the PRA area?
+  a. It would not cause losses in the PRA area (points: 0)
+  b. <0.05 million € per year (points: 0.5)
+  c. 0.05–0.1 million € per year (points: 1)
+  d. 0.1–0.2 million € per year (points: 1.5)
+  e. 0.2–0.4 million € per year (points: 2)
+  f. 0.4–0.8 million € per year (points: 2.5)
+  g. 0.8–1.5 million € per year (points: 3)
+  h. 1.5–3 million € per year (points: 3.5)
+  i. 3–6 million € per year (points: 4)
+  j. 6–12 million € per year (points: 4.5)
+  k. 12–25 million € per year (points: 5)
+  l. 25–50 million € per year (points: 5.5)
+  m. >50 million € per year (points: 6)
+
+[IMP2.1] Would the pest cause the following indirect economic impacts in the PRA area?
+  a. 2.1 Would the pest impact foreign trade? (points: 1)
+
+[IMP3] How much direct impact would the pest have on the natural ecosystems in the PRA area?
+  a. No impact (points: 0)
+  b. Moderate impact (points: 2)
+  c. Significant impact (points: 4)
+  d. Very significant impact (points: 6)
+
+[IMP4.1] Would the pest have the following environmental or social impacts in the PRA area?
+  a. 4.1. Social impacts (points: 1)
+
+[MAN1] Can the pest spread naturally to the PRA area from its current range during the next ten years?
+  a. No it cannot (points: 0)
+  b. It can, but it is unlikely or very unlikely (points: 2)
+  c. It can, and it is likely or very likely (points: 4)
+
+[MAN2] Is the pest present in the area of the European Union?
+  a. No it is not (points: 0)
+  b. Yes in a small area (points: 2)
+  c. Yes in a large area (points: 3)
+
+[MAN3] How difficult is it to detect the pest during inspections?
+  a. Easy (points: 0)
+  b. Difficult (points: 1)
+  c. Nearly impossible (points: 2)
+
+[MAN4] How difficult would it be to eradicate the pest from the PRA area?
+  a. Easy (points: 0)
+  b. Rather difficult (points: 2)
+  c. Very difficult (points: 3)
+  d. Impossible (points: 4)
+
+[MAN5] How difficult would it be to survey the pest's occurrence in the PRA area?
+  a. Easy (points: 0)
+  b. Rather difficult (points: 1)
+  c. Very difficult (points: 2)
+  d. Impossible (points: 3)
+
+[IMP2.2] Would the pest cause the following indirect economic impacts in the PRA area?
+  b. 2.2 Is the pest a vector for other pests? (points: 1)
+
+[IMP2.3] Would the pest cause the following indirect economic impacts in the PRA area?
+  c. 2.3 Would the pest have a significant impact on the profitability of some plant production sector or ecosystem? (points: 1)
+
+[IMP4.2] Would the pest have the following environmental or social impacts in the PRA area?
+  b. 4.2. Significant aesthetic impacts (points: 1)
+
+[IMP4.3] Would the pest have the following environmental or social impacts in the PRA area?
+  c. 4.3. Impact on culturally important plants or other organisms (points: 1)
+
+=== PATHWAY QUESTIONS ===
+
+[ENT2A] Not taking into account current official management measures, can the pest be transported via the considered pathway?
+  a. No it cannot (points: 0)
+  b. It can, but very unlikely (points: 0.5)
+  c. It can, but unlikely (points: 1)
+  d. It can, and it is likely (points: 2)
+  e. It can, and it is very likely (points: 3)
+
+[ENT2B] Taking into account current official management measures, can the pest be transported via the considered pathway?
+  a. No it cannot (points: 0)
+  b. It can, but very unlikely (points: 0.5)
+  c. It can, but unlikely (points: 1)
+  d. It can, and it is likely (points: 2)
+  e. It can, and it is very likely (points: 3)
+
+[ENT3] How large a volume of the considered host material or commodity is traded into the PRA area annually?
+  a. Non-existent (points: 0)
+  b. Small (points: 1)
+  c. Medium (points: 2)
+  d. Large (points: 3)
+
+[ENT4] Can the pest transfer to a suitable habitat after entering the PRA area via the pathway?
+  a. No it cannot (points: 0)
+  b. It can, but very unlikely (points: 0.5)
+  c. It can, but unlikely (points: 1)
+  d. It can, and it is likely (points: 2)
+  e. It can, and it is very likely (points: 3)
+
+=== PATHWAYS ===
+  idPathway                                  name group
+1         1 Contaminant of seeds or growing media     1
+2         2                   Plants for planting     1
+3         3               Wood and wood packaging     1
+4         4              Agricultural commodities     1
+5         5                    Cut plant material     1
+6         6                           Hitchhiking     2
+7         7                        Natural spread     3
+8         8              Intentional introduction     3

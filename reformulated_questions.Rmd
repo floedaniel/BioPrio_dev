@@ -1,0 +1,95 @@
+---
+title: "reformulated_questions"
+author: "Daniel"
+date: "2026-02-18"
+output: html_document
+---
+
+I have enough background to propose well-grounded adaptations. Here are the revised BioPrio questions for invasive arthropods, with a brief rationale for each change noted in *italics*:
+
+---
+
+**ENTRY**
+
+**[ENT1]** How wide is the current global geographical distribution of the species?
+*"Pest" replaced with "species" throughout to reflect the broader IAS framing; the term is retained where it still fits regulatory language (e.g. MAN2).*
+
+**[ENT2A]** Not taking into account current official management measures, can the species be transported to the risk assessment area via the considered pathway?
+
+**[ENT2B]** Taking into account current official management measures, can the species be transported to the risk assessment area via the considered pathway?
+
+**[ENT3]** How large a volume of the considered commodities, plant material, or other conveyances potentially associated with the species is traded into the risk assessment area annually?
+*"Host material" is too plant-specific; arthropods may arrive with timber, cut flowers, soil, packaging, outdoor equipment, or live animals.*
+
+**[ENT4]** Can the species transfer to a suitable host, prey organism, or habitat after entering the risk assessment area via the pathway?
+*Extends beyond "suitable habitat" to explicitly include trophic resources relevant to arthropods.*
+
+---
+
+**ESTABLISHMENT**
+
+**[EST1]** Could the species reproduce and overwinter (or persist through unfavourable seasons) in the risk assessment area, taking into account the prevailing climate and land use conditions?
+*"Overwinter" is retained but qualified, since some invasive arthropods face dry seasons or other limiting periods rather than cold winters. "Production conditions" replaced with "land use conditions" to include non-agricultural contexts.*
+
+**[EST2]** How large an area of suitable hosts, prey organisms, or habitats does the risk assessment area contain?
+*Rephrased for clarity and to make the trophic diversity of arthropods explicit.*
+
+**[EST3]** How quickly would the species likely spread within the risk assessment area?
+
+**[EST4]** Does the species possess biological or ecological traits that could facilitate its establishment or spread in new areas?
+*"Characteristics" specified as "biological or ecological traits" to encourage consideration of life-history features such as parthenogenesis, high fecundity, broad dietary range, and passive dispersal mechanisms common in arthropods.*
+
+---
+
+**IMPACT**
+
+**[IMP1]** How significant are the direct economic losses the species would cause in the risk assessment area?
+*No structural change needed; broadening of scope (from crop losses to forestry, infrastructure, tourism, apiculture, etc.) is best addressed in the scoring guidance rather than the question text.*
+
+**[IMP2.1]** Would the species cause the following indirect economic impacts in the risk assessment area?
+
+**[IMP2.2]** Would the species cause the following indirect economic impacts in the risk assessment area?
+
+**[IMP2.3]** Would the species cause the following indirect economic impacts in the risk assessment area?
+
+**[IMP3]** How significant would the species' direct impacts on natural ecosystems and native biodiversity be in the risk assessment area?
+*Adds "native biodiversity" to make the ecological scope explicit — critical for arthropods that affect pollinator communities, decomposer networks, or trophic cascades.*
+
+**[IMP4.1]** Would the species have the following environmental, public health, or social impacts in the risk assessment area?
+*"Public health" is added as an explicit category — a major impact pathway for invasive arthropods (disease vectors, venomous species, allergenic taxa such as processionary moths or Vespa velutina).*
+
+**[IMP4.2]** Would the species have the following environmental, public health, or social impacts in the risk assessment area?
+
+**[IMP4.3]** Would the species have the following environmental, public health, or social impacts in the risk assessment area?
+
+---
+
+**MANAGEMENT**
+
+**[MAN1]** Can the species spread naturally to the risk assessment area from its current range during the next ten years?
+
+**[MAN2]** Is the species present in the European Union?
+*Retained as-is; the regulatory reference to EU presence remains valid in a Norwegian regulatory context.*
+
+**[MAN3]** How difficult is it to detect the species during inspections of commodities or conveyances?
+*"Inspections" is extended to specify the inspection context, since arthropods can be cryptic life stages (eggs, pupae) in a wide range of materials.*
+
+**[MAN4]** How difficult would it be to eradicate the species from the risk assessment area if established?
+*"If established" is added for precision; eradication feasibility is meaningless without this qualifier.*
+
+**[MAN5]** How difficult would it be to survey and monitor the species' occurrence in the risk assessment area?
+*"Monitor" is added alongside "survey" since ongoing surveillance (not just initial detection) is particularly challenging for small or cryptic arthropods.*
+
+---
+
+**Summary of key cross-cutting changes**
+
+| Original term | BioPrio equivalent | Reason |
+|---|---|---|
+| "pest" | "species" (most contexts) | Neutral IAS framing |
+| "hosts" | "hosts, prey organisms, or habitats" | Arthropods span herbivores, predators, and detritivores |
+| "host material or commodity" | "commodities, plant material, or other conveyances" | Arthropods travel in many matrices |
+| "production conditions" | "land use conditions" | Includes non-agricultural ecosystems |
+| "environmental or social impacts" | "environmental, public health, or social impacts" | Arthropods are major disease vectors and nuisance species |
+| "natural ecosystems" | "natural ecosystems and native biodiversity" | Emphasises community-level effects |
+

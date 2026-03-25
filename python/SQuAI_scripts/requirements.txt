@@ -1,0 +1,34 @@
+# requirements.txt  –  pdf_to_squai_corpus.py + SQuAI pipeline
+#
+# Install all dependencies:
+#   pip install -r requirements.txt
+#
+# On WSL2 / Linux with system Python, add --break-system-packages:
+#   pip install -r requirements.txt --break-system-packages
+#
+# GPU users: replace faiss-cpu with faiss-gpu
+#   pip install faiss-gpu
+
+# ── PDF extraction ─────────────────────────────────────────────────────────────
+pymupdf>=1.24.0              # fitz – fast PDF text + metadata extraction
+
+# ── Dense retrieval (FAISS + E5 embeddings) ────────────────────────────────────
+faiss-cpu>=1.8.0             # vector index (replace with faiss-gpu if CUDA available)
+sentence-transformers>=3.0.0 # E5 / other embedding models
+numpy>=1.26.0
+
+# ── Sparse retrieval (BM25) ────────────────────────────────────────────────────
+rank-bm25>=0.2.2
+
+# ── Progress + utilities ───────────────────────────────────────────────────────
+tqdm>=4.66.0
+
+# ── SQuAI core dependencies (from SQuAI/requirements.txt) ─────────────────────
+torch>=2.0.0                 # PyTorch – required by SQuAI agents
+transformers>=4.40.0         # HuggingFace model loading (Falcon, etc.)
+accelerate>=0.30.0           # multi-GPU / mixed precision support
+huggingface-hub>=0.23.0      # model download
+
+# ── SQuAI retrieval stack ──────────────────────────────────────────────────────
+llama-index-core>=0.10.0     # fast_llamaindex_retriever.py
+llama-index-embeddings-huggingface>=0.2.0

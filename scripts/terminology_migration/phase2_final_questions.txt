@@ -1,0 +1,137 @@
+=== MAIN QUESTIONS (after Phase 2) ===
+
+[ENT1] How wide is the current global geographical distribution of the species?
+  a. Small (points: 1)
+  b. Medium (points: 2)
+  c. Large (points: 3)
+
+[EST1] Could the species reproduce and overwinter (or persist through unfavourable seasons) in the risk assessment area, taking into account the prevailing climate and land use conditions?
+  a. No it could not (points: 0)
+  b. It could, but it is unlikely (points: 1.5)
+  c. It could, and it is likely (points: 4.5)
+  d. It could, and it is very likely (points: 9)
+
+[EST2] How large an area of suitable hosts, prey organisms, or habitats does the risk assessment area contain?
+  a. Not at all (points: 0)
+  b. Very small (points: 1)
+  c. Small (points: 2)
+  d. Medium (points: 3)
+  e. Large (points: 4)
+
+[EST3] How quickly would the species likely spread in the risk assessment area?
+  a. Very slowly (points: 0)
+  b. Rather slowly (points: 1)
+  c. Rather quickly (points: 2)
+  d. Quickly (points: 3)
+
+[EST4] Does the species possess biological or ecological traits that could facilitate its establishment or spread in new areas?
+  a. No it does not (points: 0)
+  b. It has traits that could facilitate to some extent (points: 1)
+  c. It has traits that could facilitate to a great extent (points: 2)
+  d. It has traits that could facilitate to a very great extent (points: 3)
+
+[IMP1] How significant are the direct economic losses that the species would cause in the risk assessment area?
+  a. It would not cause losses in the risk assessment area (points: 0)
+  b. <0.05 million € per year (points: 0.5)
+  c. 0.05–0.1 million € per year (points: 1)
+  d. 0.1–0.2 million € per year (points: 1.5)
+  e. 0.2–0.4 million € per year (points: 2)
+  f. 0.4–0.8 million € per year (points: 2.5)
+  g. 0.8–1.5 million € per year (points: 3)
+  h. 1.5–3 million € per year (points: 3.5)
+  i. 3–6 million € per year (points: 4)
+  j. 6–12 million € per year (points: 4.5)
+  k. 12–25 million € per year (points: 5)
+  l. 25–50 million € per year (points: 5.5)
+  m. >50 million € per year (points: 6)
+
+[IMP2.1] Would the species cause the following indirect economic impacts in the risk assessment area?
+  a. 2.1 Would the species impact foreign trade? (points: 1)
+
+[IMP2.2] Would the species cause the following indirect economic impacts in the risk assessment area?
+  b. 2.2 Is the species a vector for other pests? (points: 1)
+
+[IMP2.3] Would the species cause the following indirect economic impacts in the risk assessment area?
+  c. 2.3 Would the species have a significant impact on the profitability of some plant production sector or ecosystem? (points: 1)
+
+[IMP3] How significant would the species' direct impacts on natural ecosystems and native biodiversity be in the risk assessment area?
+  a. No impact (points: 0)
+  b. Moderate impact (points: 2)
+  c. Significant impact (points: 4)
+  d. Very significant impact (points: 6)
+
+[IMP4.1] Would the species have the following environmental, public health, or social impacts in the risk assessment area?
+  a. 4.1. Social impacts (points: 1)
+
+[IMP4.2] Would the species have the following environmental, public health, or social impacts in the risk assessment area?
+  b. 4.2. Significant aesthetic impacts (points: 1)
+
+[IMP4.3] Would the species have the following environmental, public health, or social impacts in the risk assessment area?
+  c. 4.3. Impact on culturally important plants or other organisms (points: 1)
+
+[MAN1] Can the species spread naturally to the risk assessment area from its current range during the next ten years?
+  a. No it cannot (points: 0)
+  b. It can, but it is unlikely or very unlikely (points: 2)
+  c. It can, and it is likely or very likely (points: 4)
+
+[MAN2] Is the species present in the area of the European Union?
+  a. No it is not (points: 0)
+  b. Yes in a small area (points: 2)
+  c. Yes in a large area (points: 3)
+
+[MAN3] How difficult is it to detect the species during inspections of commodities or conveyances?
+  a. Easy (points: 0)
+  b. Difficult (points: 1)
+  c. Nearly impossible (points: 2)
+
+[MAN4] How difficult would it be to eradicate the species from the risk assessment area if established?
+  a. Easy (points: 0)
+  b. Rather difficult (points: 2)
+  c. Very difficult (points: 3)
+  d. Impossible (points: 4)
+
+[MAN5] How difficult would it be to survey and monitor the species' occurrence in the risk assessment area?
+  a. Easy (points: 0)
+  b. Rather difficult (points: 1)
+  c. Very difficult (points: 2)
+  d. Impossible (points: 3)
+
+=== PATHWAY QUESTIONS (after Phase 2) ===
+
+[ENT2A] Not taking into account current official management measures, can the species be transported to the risk assessment area via the considered pathway?
+  a. No it cannot (points: 0)
+  b. It can, but very unlikely (points: 0.5)
+  c. It can, but unlikely (points: 1)
+  d. It can, and it is likely (points: 2)
+  e. It can, and it is very likely (points: 3)
+
+[ENT2B] Taking into account current official management measures, can the species be transported to the risk assessment area via the considered pathway?
+  a. No it cannot (points: 0)
+  b. It can, but very unlikely (points: 0.5)
+  c. It can, but unlikely (points: 1)
+  d. It can, and it is likely (points: 2)
+  e. It can, and it is very likely (points: 3)
+
+[ENT3] How large a volume of the considered commodities, plant material, or other conveyances potentially associated with the species is traded into the risk assessment area annually?
+  a. Non-existent (points: 0)
+  b. Small (points: 1)
+  c. Medium (points: 2)
+  d. Large (points: 3)
+
+[ENT4] Can the species transfer to a suitable host, prey organism, or habitat after entering the risk assessment area via the pathway?
+  a. No it cannot (points: 0)
+  b. It can, but very unlikely (points: 0.5)
+  c. It can, but unlikely (points: 1)
+  d. It can, and it is likely (points: 2)
+  e. It can, and it is very likely (points: 3)
+
+=== PATHWAYS ===
+  idPathway                                  name group
+1         1 Contaminant of seeds or growing media     1
+2         2                   Plants for planting     1
+3         3               Wood and wood packaging     1
+4         4              Agricultural commodities     1
+5         5                    Cut plant material     1
+6         6                           Hitchhiking     2
+7         7                        Natural spread     3
+8         8              Intentional introduction     3
