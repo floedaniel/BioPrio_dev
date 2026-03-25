@@ -650,14 +650,12 @@ def main():
                         help="Re-run SQuAI even if results already exist")
     parser.add_argument("--db_only",      action="store_true",
                         help="Skip indexing/SQuAI; write existing results to DB only")
-    parser.add_argument("--no_skip",      action="store_true",
-                        help="Write justifications even if one already exists in DB")
     args = parser.parse_args()
 
     lit_root   = Path(args.lit_root)
     corpus_dir = Path(args.corpus_dir)
     squai_dir  = Path(args.squai_dir)
-    skip_existing = not args.no_skip
+    skip_existing = SKIP_EXISTING_JUSTIFICATION
     species_filter = [args.species] if args.species else SPECIES_FILTER
 
     # Copy DB — all writes go to the copy
