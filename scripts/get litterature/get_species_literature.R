@@ -33,25 +33,28 @@ library(tibble)
 library(openalexR)
 library(rgbif)
 
-# Optionally identify to CrossRef (improves rate limits)
-Sys.setenv(crossref_email = unpaywall_email)
-
 # -------------------- CONFIGURATION -----------------------------------------
-
-# Species to search for (add/remove as needed)
-species_list <- c(
-  # "Anoplolepis gracilipes",
-   "Formica neorufibarbis",
-   "formica aserva"
-)
 
 # Base output directory (each species gets a subfolder)
 # Format: {GBIF_KEY}_{Scientific_Name} to match hybrid justification populator
-base_output_dir <- "C:/Users/dafl/OneDrive - Folkehelseinstituttet/VKM Data/27.02.2025_maur_forprosjekt_biologisk_mangfold/data/species"
+base_output_dir <- "C:/Users/dafl/OneDrive - Folkehelseinstituttet/Prosjektdata - Dokumenter/VKM Data/27.02.2025_maur_forprosjekt_biologisk_mangfold/data/species"
 
 # Your email for Unpaywall API (required - register at unpaywall.org)
 # This is free and gives access to legal open access PDFs
 unpaywall_email <- "daniel.flo@vkm.no"
+
+# Derive species list from folder structure (folders matching {GBIF_KEY}_{Genus}_{species}*)
+folders <- list.dirs(base_output_dir, full.names = FALSE, recursive = FALSE)
+species_list <- folders |>
+  grep(pattern = "^\\d+_[A-Z][a-z]+_[a-z]+", value = TRUE) |>
+  sub(pattern = "^\\d+_", replacement = "") |>
+  strsplit(split = "_") |>
+  sapply(function(parts) paste(parts[1], parts[2])) |>
+  unique() |>
+  sort()
+
+# Optionally identify to CrossRef (improves rate limits)
+Sys.setenv(crossref_email = unpaywall_email)
 
 # Search settings
 max_results_per_source <- 500   # Limit per database (lower = faster)
@@ -184,6 +187,11 @@ search_pubmed <- function(term, limit) {
       rate_limit(0.5)
     }
 
+    # Flatten batches safely: esummary_list -> list of esummary; single esummary -> list of one
+    flat_articles <- lapply(all_articles, function(batch) {
+      if (inherits(batch, "esummary_list")) as.list(batch) else list(batch)
+    }) |> unlist(recursive = FALSE)
+
     # Extract DOIs from elocationid field
     extract_doi <- function(x) {
       eloc <- x$elocationid
@@ -196,7 +204,7 @@ search_pubmed <- function(term, limit) {
       NA
     }
 
-    results <- lapply(unlist(all_articles, recursive = FALSE), function(x) {
+    results <- lapply(flat_articles, function(x) {
       data.frame(
         title = if (!is.null(x$title)) x$title else NA,
         doi = extract_doi(x),
@@ -294,8 +302,13 @@ search_all_sources <- function(term, limit = 500, from_date = "2000-01-01") {
   log_msg("Searching OpenAlex...")
   openalex <- search_openalex(term, limit, from_date)
 
-  # Combine and deduplicate
-  all_results <- bind_rows(epmc, pubmed, crossref, openalex)
+  # Combine and deduplicate (coerce doi to character to handle all-NA logical columns)
+  all_results <- bind_rows(
+    lapply(list(epmc, pubmed, crossref, openalex), function(df) {
+      if (!is.null(df) && "doi" %in% names(df)) df <- mutate(df, doi = as.character(doi))
+      df
+    })
+  )
 
   if (nrow(all_results) == 0) return(NULL)
 
@@ -627,13 +640,19 @@ for (species in species_list) {
     next
   }
 
-  species_log <- process_species(
-    species = species,
-    base_dir = base_output_dir,
-    email = unpaywall_email,
-    max_results = max_results_per_source,
-    from_date = search_from_date,
-    gbif_key = gbif_key
+  species_log <- tryCatch(
+    process_species(
+      species = species,
+      base_dir = base_output_dir,
+      email = unpaywall_email,
+      max_results = max_results_per_source,
+      from_date = search_from_date,
+      gbif_key = gbif_key
+    ),
+    error = function(e) {
+      log_msg("❌ Error processing ", species, ": ", e$message, " — skipping")
+      NULL
+    }
   )
 
   if (!is.null(species_log)) {

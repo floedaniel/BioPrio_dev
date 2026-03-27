@@ -5,11 +5,10 @@ Complements get_species_literature.R by searching sources not covered by it:
 - Semantic Scholar
 - CORE (open access aggregator)
 
-Saves PDFs to literature_additional/ subfolder within species folders.
+Saves PDFs to the same literature/ subfolder used by get_species_literature.R.
+Deduplicates by DOI against existing files before downloading.
 """
 
-import os
-import sqlite3
 import time
 import re
 from pathlib import Path
@@ -26,11 +25,8 @@ import requests
 # Output path (same as R script and hybrid populator)
 SPECIES_DOCS_BASE_PATH = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\Prosjektdata - Dokumenter\VKM Data\27.02.2025_maur_forprosjekt_biologisk_mangfold\data\species"
 
-# Database path for species list
-DATABASE_PATH = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\FinnPrio\BioiPRIO_development\databases\ant_test\clean_ants.db"
-
-# Subfolder for Python-sourced literature (separate from R's "literature" folder)
-LITERATURE_SUBFOLDER = "literature_additional"
+# Subfolder for PDFs — same as get_species_literature.R to keep all PDFs together
+LITERATURE_SUBFOLDER = "literature"
 
 # API configuration
 CORE_API_KEY_FILE = r"C:\Users\dafl\Desktop\API keys\core_api_key.txt"
@@ -89,10 +85,9 @@ CORE_API_KEY = load_api_key(CORE_API_KEY_FILE)
 
 @dataclass
 class Species:
-    """Species information from database."""
+    """Species information derived from folder name."""
     scientific_name: str
     gbif_key: str
-    eppo_code: str = ""
 
 
 @dataclass
@@ -108,37 +103,34 @@ class Paper:
 
 
 # =============================================================================
-# DATABASE FUNCTIONS
+# SPECIES DISCOVERY
 # =============================================================================
 
-def get_species_from_database(db_path: str) -> List[Species]:
-    """Get all species with GBIF keys from the database."""
-    if not Path(db_path).exists():
-        log_msg(f"Database not found: {db_path}")
+def get_species_from_folders(base_dir: str) -> List[Species]:
+    """Derive species list from existing folder structure.
+
+    Folders follow the naming convention used by get_species_literature.R:
+        {GBIF_KEY}_{Genus}_{species}[_optional_extra]
+    e.g. 11700741_Lasius_aphidicola
+    """
+    base_path = Path(base_dir)
+    if not base_path.exists():
+        log_msg(f"Base directory not found: {base_dir}")
         return []
 
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT DISTINCT p.scientificName, p.gbifTaxonKey, p.eppoCode
-        FROM pests p
-        WHERE p.gbifTaxonKey IS NOT NULL AND p.gbifTaxonKey != ''
-        ORDER BY p.scientificName
-    """)
-
     species_list = []
-    for row in cursor.fetchall():
-        scientific_name, gbif_key, eppo_code = row
-        if scientific_name and gbif_key:
-            species_list.append(Species(
-                scientific_name=scientific_name,
-                gbif_key=str(gbif_key),
-                eppo_code=eppo_code or ""
-            ))
+    for folder in sorted(base_path.iterdir()):
+        if not folder.is_dir():
+            continue
+        # Match {digits}_{UppercaseLetter}{lowercase}_{lowercase} pattern
+        m = re.match(r"^(\d+)_([A-Z][a-z]+)_([a-z]+)", folder.name)
+        if not m:
+            continue
+        gbif_key = m.group(1)
+        scientific_name = f"{m.group(2)} {m.group(3)}"
+        species_list.append(Species(scientific_name=scientific_name, gbif_key=gbif_key))
 
-    conn.close()
-    log_msg(f"Loaded {len(species_list)} species from database")
+    log_msg(f"Found {len(species_list)} species from folder structure")
     return species_list
 
 
@@ -178,17 +170,15 @@ def get_or_create_species_folder(base_dir: str, species: Species) -> Optional[Pa
 
 
 def get_existing_dois(species_folder: Path) -> Set[str]:
-    """Get set of DOIs already downloaded (from both literature folders)."""
+    """Get set of DOIs already downloaded in the shared literature/ folder."""
     existing_dois = set()
 
-    # Check both literature/ and literature_additional/
-    for subfolder in ["literature", LITERATURE_SUBFOLDER]:
-        lit_path = species_folder / subfolder
-        if lit_path.exists():
-            for pdf_file in lit_path.glob("*.pdf"):
-                # Extract DOI from filename (files are named {doi}.pdf)
-                doi = pdf_file.stem.replace("_", "/")
-                existing_dois.add(normalize_doi(doi))
+    lit_path = species_folder / LITERATURE_SUBFOLDER
+    if lit_path.exists():
+        for pdf_file in lit_path.glob("*.pdf"):
+            # Filenames are safe_filename(doi).pdf — reverse the substitution
+            doi = pdf_file.stem.replace("_", "/")
+            existing_dois.add(normalize_doi(doi))
 
     return existing_dois
 
@@ -488,8 +478,8 @@ def process_species(species: Species, base_dir: str) -> Dict:
 
         time.sleep(DELAY_BETWEEN_DOWNLOADS)
 
-    # Save metadata
-    metadata_file = lit_folder / "metadata_additional.csv"
+    # Save metadata to species folder root (alongside R's metadata.csv)
+    metadata_file = species_folder / "metadata_additional.csv"
     with open(metadata_file, "w", encoding="utf-8") as f:
         f.write("title,doi,year,authors,source,citations\n")
         for paper in unique_papers:
@@ -511,10 +501,10 @@ def main(species_filter: List[str] = None):
     log_msg(f"Semantic Scholar: Available (REST API)")
     log_msg(f"CORE API key: {'Loaded' if CORE_API_KEY else 'Not found'}")
 
-    # Load species from database
-    species_list = get_species_from_database(DATABASE_PATH)
+    # Derive species list from existing folders (same source as get_species_literature.R)
+    species_list = get_species_from_folders(SPECIES_DOCS_BASE_PATH)
     if not species_list:
-        log_msg("No species found in database")
+        log_msg("No species folders found")
         return
 
     # Apply species filter if provided
@@ -554,20 +544,17 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Additional Literature Fetcher for BioPRIO")
-    parser.add_argument("--db", type=str, default=DATABASE_PATH,
-                        help="Path to SQLite database")
     parser.add_argument("--output", type=str, default=SPECIES_DOCS_BASE_PATH,
-                        help="Output directory for species folders")
+                        help="Base directory containing species folders")
     parser.add_argument("--species", type=str, nargs="+", default=None,
                         help="Filter by species names (e.g., --species 'Lasius aphidicola')")
     parser.add_argument("--limit", type=int, default=MAX_RESULTS_PER_SOURCE,
                         help="Max results per source")
 
-    args = parser.parse_args()
+    cli_args = parser.parse_args()
 
     # Override globals with args
-    DATABASE_PATH = args.db
-    SPECIES_DOCS_BASE_PATH = args.output
-    MAX_RESULTS_PER_SOURCE = args.limit
+    SPECIES_DOCS_BASE_PATH = cli_args.output
+    MAX_RESULTS_PER_SOURCE = cli_args.limit
 
-    main(species_filter=args.species)
+    main(species_filter=cli_args.species)

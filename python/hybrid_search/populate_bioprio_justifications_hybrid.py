@@ -28,8 +28,10 @@ from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass, field
 import re
+import sys
 
-# Import instructions loader (auto-generates JSON from Rmd if needed)
+# bioprio_instructions_loader lives in gpt_researcher_scripts/
+sys.path.insert(0, str(Path(__file__).parent.parent / "gpt_researcher_scripts"))
 from bioprio_instructions_loader import build_justification_prompt
 
 try:

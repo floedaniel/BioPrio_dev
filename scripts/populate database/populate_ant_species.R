@@ -20,14 +20,26 @@ library(tidyverse)
 # CONFIGURATION
 # =============================================================================
 
-DB_FILE <- "C:/Users/dafl/OneDrive - Folkehelseinstituttet/FinnPrio/BioiPRIO_development/databases/ant_test/clean_ants.db"
+SOURCE_DB  <- "C:/Users/dafl/OneDrive - Folkehelseinstituttet/FinnPrio/BioiPRIO_development/databases/clean_database/clean.db"
+DB_FILE    <- "C:/Users/dafl/OneDrive - Folkehelseinstituttet/FinnPrio/BioiPRIO_development/databases/ants/ants.db"
 
-# Species to add (scientific names)
-SPECIES_NAMES <- c(
-  "Formica aserva",
-  "Anoplolepis gracilipes",
-  "Formica neorufibarbis"
-)
+if (!file.exists(SOURCE_DB)) stop("Source database not found: ", SOURCE_DB)
+dir.create(dirname(DB_FILE), showWarnings = FALSE, recursive = TRUE)
+file.copy(SOURCE_DB, DB_FILE, overwrite = TRUE)
+
+# Species directory - names are derived from folder structure at runtime
+SPECIES_DIR <- "C:/Users/dafl/OneDrive - Folkehelseinstituttet/Prosjektdata - Dokumenter/VKM Data/27.02.2025_maur_forprosjekt_biologisk_mangfold/data/species"
+
+# Derive species names from folders matching pattern: {GBIF_KEY}_{Genus}_{species}*
+# Folders with only a numeric name (no species part) are skipped
+folders <- list.dirs(SPECIES_DIR, full.names = FALSE, recursive = FALSE)
+SPECIES_NAMES <- folders |>
+  grep(pattern = "^\\d+_[A-Z][a-z]+_[a-z]+", value = TRUE) |>
+  sub(pattern = "^\\d+_", replacement = "") |>
+  strsplit(split = "_") |>
+  sapply(function(parts) paste(parts[1], parts[2])) |>
+  unique() |>
+  sort()
 
 # Default assessor ID - check your assessors table for valid IDs
 DEFAULT_ASSESSOR_ID <- 3L
