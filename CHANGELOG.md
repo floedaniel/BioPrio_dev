@@ -1,5 +1,16 @@
 # BioPRIO Changelog
 
+## 2026-03-27: Cleanup — Remove FinnPRIO_dev_v_1.Rproj + Fix Remaining Paths
+
+### Summary
+Removed stale FinnPRIO project file from repo and fixed the last remaining old `VKM Data` path.
+
+### Changed
+- Deleted `FinnPRIO_dev_v_1.Rproj` from repo (wrong project file, not BioPRIO)
+- Fixed `python/populate_finnprio_justifications_hybrid.py` — updated `SPECIES_DOCS_BASE_PATH` to `Prosjektdata - Dokumenter\VKM Data\26.08.2024_lopende_oppdrag_plantehelse\Species`
+
+---
+
 ## 2026-03-27: SQuAI Pipeline Improvements + Path Updates
 
 ### Summary
