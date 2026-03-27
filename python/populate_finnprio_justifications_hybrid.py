@@ -59,7 +59,7 @@ QUESTION_FILTER = "EST2"
 # =============================================================================
 
 # Base path where species folders with PDFs are stored
-SPECIES_DOCS_BASE_PATH = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\VKM Data\26.08.2024_lopende_oppdrag_plantehelse\Species"
+SPECIES_DOCS_BASE_PATH = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\Prosjektdata - Dokumenter\VKM Data\26.08.2024_lopende_oppdrag_plantehelse\Species"
 
 # Temp folder name for GPT Researcher local docs (created in script directory)
 TEMP_DOCS_FOLDER = "my-docs"
