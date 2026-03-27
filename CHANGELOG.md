@@ -1,5 +1,16 @@
 # BioPRIO Changelog
 
+## 2026-03-27: Update Docs to Reflect Correct Python Script Locations
+
+### Summary
+Updated CLAUDE.md and README.md to reflect the actual python script structure after FinnPRIO script removal.
+
+### Changed
+- `CLAUDE.md`: Corrected Python AI scripts section — added SQuAI pipeline, fixed paths to `gpt_researcher_scripts/` subfolder
+- `README.md`: Fixed file tree (removed `populate_finnprio_values.py`, added `gpt_researcher_scripts/` structure); fixed Step 3 command to use `gpt_researcher_scripts/populate_bioprio_values.py`
+
+---
+
 ## 2026-03-27: Remove FinnPRIO Scripts from BioPRIO Repo
 
 ### Summary

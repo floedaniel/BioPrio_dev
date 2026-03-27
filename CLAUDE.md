@@ -404,26 +404,31 @@ BioPRIO input (same biological situation) → Score X (identical)
 
 Python scripts for automatically generating justifications, populating values, and fetching literature:
 
-**Justification Generation:**
+**GPT Researcher pipeline (`python/gpt_researcher_scripts/`):**
 - `populate_bioprio_justifications.py`: Web-based research using GPT Researcher
 - `populate_bioprio_justifications_hybrid.py`: Hybrid mode (web + local PDFs)
 - `populate_bioprio_values.py`: Determines min/likely/max values from justifications
 
+**SQuAI pipeline (`python/SQuAI_scripts/`):**
+- `squai_populate_bioprio.py`: Local PDF RAG justification pipeline (no API key needed)
+- `scripts/3_pdf_to_squai_corpus.py`: Indexes PDFs recursively into SQuAI corpus
+
 **Literature Fetching:**
-- `get_additional_literature.py`: Fetches papers from Semantic Scholar and CORE APIs
+- `python/get_additional_literature.py`: Fetches papers from Semantic Scholar and CORE APIs
 
 **Instructions System (v2.0):**
-- `parse_rmd_instructions.py`: Parses Rmd to structured JSON with options and guidance
-- `instructions_loader.py`: Loads JSON, builds prompts for AI scripts
-- `instructions_cache/`: Cache directory for generated JSON
+- `python/parse_rmd_instructions.py`: Parses Rmd to structured JSON with options and guidance
+- `python/instructions_loader.py`: Loads JSON, builds prompts for AI scripts
+- `python/instructions_cache/`: Cache directory for generated JSON
 
 The instructions system loads question-specific guidance from `information/Instructions_FinnPRIO_assessments.Rmd` with explicit thresholds (km², ha, kg) for accurate AI value selection.
 
 **Workflow:**
-1. Run `get_additional_literature.py` to fetch PDFs from Semantic Scholar/CORE
+1. Run `python/get_additional_literature.py` to fetch PDFs from Semantic Scholar/CORE
 2. Run R script `get_species_literature.R` to fetch PDFs from EuropePMC/PubMed/CrossRef/OpenAlex
-3. Run `populate_bioprio_justifications_hybrid.py` to generate justifications using web + local PDFs
-4. Run `populate_bioprio_values.py` to determine values from justifications
+3. Run `python/gpt_researcher_scripts/populate_bioprio_justifications_hybrid.py` to generate justifications using web + local PDFs
+   — OR — Run `python/SQuAI_scripts/squai_populate_bioprio.py` for local-only (no API key)
+4. Run `python/gpt_researcher_scripts/populate_bioprio_values.py` to determine values from justifications
 5. Load enhanced database in BioPRIO Assessor
 
 **Configuration:**

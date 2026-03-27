@@ -70,10 +70,12 @@ assessment data.
     │   └── sqlite queries.R           # Database query templates
     ├── python/                         # AI-assisted justification scripts
     │   ├── get_additional_literature.py
-    │   ├── populate_bioprio_justifications_hybrid.py
-    │   ├── populate_finnprio_values.py
     │   ├── instructions_loader.py
-    │   └── SQuAI_scripts/             # SQuAI corpus pipeline
+    │   ├── parse_rmd_instructions.py
+    │   ├── gpt_researcher_scripts/    # GPT Researcher pipeline
+    │   │   ├── populate_bioprio_justifications_hybrid.py
+    │   │   └── populate_bioprio_values.py
+    │   └── SQuAI_scripts/             # SQuAI local PDF RAG pipeline
     ├── scripts/
     │   ├── get litterature/            # Literature fetching (R)
     │   ├── populate database/          # Species population scripts
@@ -118,7 +120,7 @@ python python/populate_bioprio_justifications_hybrid.py --db path/to/database.db
 ### 3. Determine Values
 
 ``` bash
-python python/populate_finnprio_values.py --db path/to/database.db
+python python/gpt_researcher_scripts/populate_bioprio_values.py --db path/to/database.db
 ```
 
 ### API Keys
