@@ -50,11 +50,19 @@ if str(_SCRIPTS_DIR) not in sys.path:
 # USER CONFIGURATION
 # ==============================================================================
 
+# Trial run — set True to process only 1 species and 1 question (for quick testing)
+TRIAL_RUN = True
+
+# HuggingFace token (optional — avoids rate-limit warnings during model downloads)
+_HF_TOKEN_FILE = r"C:\Users\dafl\Desktop\API keys\hugging_face.txt"
+if Path(_HF_TOKEN_FILE).exists():
+    os.environ.setdefault("HF_TOKEN", Path(_HF_TOKEN_FILE).read_text().strip())
+
 # BioPRIO database to enhance (copy will be written to same directory)
 DEFAULT_DB_PATH = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\FinnPrio\BioiPRIO_development\databases\ant_test\clean_ants.db"
 
 # Root folder: one sub-folder per species named {GBIF_KEY}_{Species_Name}/
-SPECIES_LIT_ROOT = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\VKM Data\27.02.2025_maur_forprosjekt_biologisk_mangfold\data\species"
+SPECIES_LIT_ROOT = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\Prosjektdata - Dokumenter\VKM Data\27.02.2025_maur_forprosjekt_biologisk_mangfold\data\species"
 
 # SQuAI repo path — resolved relative to this script
 SQUAI_DIR  = _HERE / "squai_repo"
@@ -63,7 +71,7 @@ SQUAI_DIR  = _HERE / "squai_repo"
 CORPUS_DIR = _HERE / "squai_corpus"
 
 # LLM for SQuAI agents (local CPU model — no API key needed)
-SQUAI_MODEL          = "tiiuae/Falcon3-1B-Instruct"
+SQUAI_MODEL          = "tiiuae/Falcon3-3B-Instruct"
 SQUAI_ALPHA          = 0.65      # hybrid weight: 1.0 = dense only, 0.0 = BM25 only
 SQUAI_TOP_K          = 20        # passages retrieved per sub-question
 SQUAI_N              = 0.5       # judge bar adjustment (higher = stricter)
@@ -72,7 +80,8 @@ SQUAI_RETRIEVER_TYPE = "hybrid"  # "hybrid" | "bm25" | "e5"
 # Filters — same semantics as populate_bioprio_justifications.py
 SPECIES_FILTER  = []    # empty = all species; supports scientific name or GBIF key
 QUESTION_FILTER = None  # e.g. "ENT1"; None = all questions
-SKIP_EXISTING_JUSTIFICATION = True  # skip questions already answered in DB
+SKIP_EXISTING_JUSTIFICATION = False  # skip questions already answered in DB
+FORCE_SQUAI     = True # set True to re-run SQuAI even if results already exist
 
 # ==============================================================================
 # END OF USER CONFIGURATION
@@ -95,7 +104,7 @@ def find_species_pdf_folder(
     lit_root: Path
 ) -> Optional[Path]:
     """
-    Find the PDF folder for a species in SPECIES_LIT_ROOT.
+    Find the species root folder in SPECIES_LIT_ROOT.
 
     Strategy 1: folder starting with "{gbif_key}_"
     Strategy 2: folder containing species name (spaces -> underscores)
@@ -109,18 +118,19 @@ def find_species_pdf_folder(
     if gbif_key:
         for d in lit_root.iterdir():
             if d.is_dir() and d.name.startswith(f"{gbif_key}_"):
-                log.info("  Found PDF folder (GBIF key): %s", d.name)
+                log.info("  Found species folder (GBIF key): %s", d.name)
                 return d
 
     # Strategy 2: fuzzy match on scientific name
     name_key = species_name.replace(" ", "_").lower()
     for d in lit_root.iterdir():
         if d.is_dir() and name_key in d.name.lower():
-            log.info("  Found PDF folder (name match): %s", d.name)
+            log.info("  Found species folder (name match): %s", d.name)
             return d
 
-    log.warning("  No PDF folder found for '%s' (gbifKey=%s)", species_name, gbif_key)
+    log.warning("  No species folder found for '%s' (gbifKey=%s)", species_name, gbif_key)
     return None
+
 
 
 # ==============================================================================
@@ -330,6 +340,19 @@ def update_pathway_justification(db_path: str, id_entry_pathway: int,
 # QUESTION JSONL GENERATION
 # ==============================================================================
 
+_TEMPLATE_FILE = _HERE / "bioprio_questions_template.jsonl"
+
+
+def _load_question_templates() -> Dict[str, str]:
+    """Load question templates from bioprio_questions_template.jsonl."""
+    templates = {}
+    with open(_TEMPLATE_FILE, encoding="utf-8") as f:
+        for line in f:
+            rec = json.loads(line.strip())
+            templates[rec["id"]] = rec["question"]
+    return templates
+
+
 def generate_question_jsonl(
     species_name: str,
     assessment_id: int,
@@ -338,61 +361,49 @@ def generate_question_jsonl(
     question_filter: Optional[str] = None,
 ) -> Path:
     """
-    Generate per-species question JSONL for SQuAI from the BioPRIO Rmd instructions.
+    Generate per-species question JSONL for SQuAI from bioprio_questions_template.jsonl.
 
     Regular questions: id = "{CODE}__{species_underscored}"
     Pathway questions: id = "{CODE}__{pathway_slug}__{species_underscored}"
 
     Returns path to written JSONL file.
     """
-    from bioprio_instructions_loader import (
-        build_justification_prompt,
-        get_all_question_codes,
-        get_pathway_question_codes,
-    )
-
+    templates = _load_question_templates()
+    pathway_codes = {"ENT2A", "ENT2B", "ENT3", "ENT4"}
     species_key = species_name.replace(" ", "_")
     records = []
 
     # ── regular questions ─────────────────────────────────────────────────────
-    all_codes = get_all_question_codes()
-    pathway_codes = set(get_pathway_question_codes())
-    regular_codes = [c for c in all_codes if c not in pathway_codes]
-
-    for code in regular_codes:
-        if question_filter and not code.upper().startswith(question_filter.upper()):
+    for tid, template in templates.items():
+        if tid in pathway_codes:
             continue
-        try:
-            prompt = build_justification_prompt(code, species_name)
-            records.append({
-                "id": f"{code}__{species_key}",
-                "species": species_name,
-                "question": prompt,
-            })
-        except KeyError as e:
-            log.warning("  Skipping question %s: %s", code, e)
+        base = tid.split(".")[0]  # "IMP2.1" → "IMP2" for filter matching
+        if question_filter and not base.upper().startswith(question_filter.upper()):
+            continue
+        records.append({
+            "id": f"{tid}__{species_key}",
+            "species": species_name,
+            "question": template.replace("{species}", species_name),
+        })
 
     # ── pathway questions ─────────────────────────────────────────────────────
     pathways = get_assessment_pathways(db_path, assessment_id)
-    path_q_codes = get_pathway_question_codes()
 
     for pathway in pathways:
-        for code in path_q_codes:
+        for code in pathway_codes:
             if question_filter and not code.upper().startswith(question_filter.upper()):
                 continue
-            try:
-                prompt = build_justification_prompt(
-                    code, species_name, pathway_name=pathway["name"]
-                )
-                pathway_slug = pathway["name"].replace(" ", "_")[:30]
-                records.append({
-                    "id": f"{code}__{pathway_slug}__{species_key}",
-                    "species": species_name,
-                    "question": prompt,
-                })
-            except KeyError as e:
-                log.warning("  Skipping pathway question %s (%s): %s",
-                            code, pathway["name"], e)
+            template = templates.get(code)
+            if not template:
+                log.warning("  No template for pathway question %s", code)
+                continue
+            pathway_slug = pathway["name"].replace(" ", "_")[:30]
+            records.append({
+                "id": f"{code}__{pathway_slug}__{species_key}",
+                "species": species_name,
+                "question": template.replace("{species}", species_name)
+                                    .replace("{pathway}", pathway["name"]),
+            })
 
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / f"{species_key}_questions.jsonl"
@@ -452,13 +463,53 @@ def run_squai_for_species(
     try:
         subprocess.run(cmd, check=True, cwd=str(squai_dir))
     except subprocess.CalledProcessError as e:
-        log.error("  SQuAI subprocess failed for %s: %s", species_name, e)
+        # SQuAI writes results before cleanup runs — a crash in cleanup (e.g.
+        # db.close() on None) returns exit code 1 even though results exist.
+        result = find_latest_result(results_dir)
+        if result:
+            log.warning("  SQuAI exited with error but results found — using them. Error: %s", e)
+            return result
+        log.error("  SQuAI subprocess failed for %s and no results found: %s", species_name, e)
         return None
 
-    return find_latest_result(results_dir)
+    result = find_latest_result(results_dir)
+    if not result:
+        log.error("  SQuAI completed but no result file found in %s", results_dir)
+    return result
 
 
-def read_squai_results(result_file: Path) -> Tuple[Dict[str, str], Dict[Tuple[str, str], str]]:
+def _load_doc_sources(corpus_dir: Path) -> Dict[str, str]:
+    """Build doc_id → PDF filename map from corpus.jsonl."""
+    corpus_path = corpus_dir / "corpus.jsonl"
+    sources = {}
+    if corpus_path.exists():
+        with open(corpus_path, encoding="utf-8") as f:
+            for line in f:
+                doc = json.loads(line.strip())
+                pid = doc.get("paper_id", "")
+                source = doc.get("metadata", {}).get("source", "")
+                if pid and source:
+                    sources[pid] = source
+    return sources
+
+
+def _append_references(answer: str, doc_meta: Dict, doc_sources: Dict[str, str]) -> str:
+    """Append a References section to the answer using PDF source filenames."""
+    if not doc_meta:
+        return answer
+    refs = []
+    for num, info in sorted(doc_meta.items(), key=lambda x: int(x[0])):
+        doc_id = info.get("doc_id", "")
+        source = doc_sources.get(doc_id, doc_id[:8])
+        refs.append(f"[{num}] {source}")
+    if refs:
+        return answer + "\n\nReferences:\n" + "\n".join(refs)
+    return answer
+
+
+def read_squai_results(
+    result_file: Path, corpus_dir: Path
+) -> Tuple[Dict[str, str], Dict[Tuple[str, str], str]]:
     """
     Parse SQuAI output JSONL.
     Returns (regular_results, pathway_results).
@@ -467,10 +518,11 @@ def read_squai_results(result_file: Path) -> Tuple[Dict[str, str], Dict[Tuple[st
       "ENT1__Lasius_neglectus"                    -> regular question ENT1
       "ENT2A__Intentional_introduction__Lasius_n" -> pathway question ENT2A,
                                                      pathway slug = Intentional_introduction
-    The 'answer' field is used (not 'model_answer' which is an internal field).
+    Each answer has a References section appended with actual PDF filenames.
     """
+    doc_sources = _load_doc_sources(corpus_dir)
     results: Dict[str, str] = {}
-    pathway_results: Dict[Tuple[str, str], str] = {}  # (code, pathway_slug) -> answer
+    pathway_results: Dict[Tuple[str, str], str] = {}
 
     with open(result_file, encoding="utf-8") as f:
         for line in f:
@@ -487,12 +539,12 @@ def read_squai_results(result_file: Path) -> Tuple[Dict[str, str], Dict[Tuple[st
             if not answer:
                 continue
 
+            answer = _append_references(answer, rec.get("document_metadata", {}), doc_sources)
+
             parts = rid.split("__")
             if len(parts) == 2:
-                # Regular: "ENT1__Lasius_neglectus"
                 results[parts[0]] = answer
             elif len(parts) == 3:
-                # Pathway: "ENT2A__pathway_slug__species"
                 pathway_results[(parts[0], parts[1])] = answer
 
     return results, pathway_results
@@ -527,11 +579,11 @@ def process_species(
     summary = {"species": species_name, "written": 0, "skipped": 0,
                "errors": 0, "warnings": []}
 
-    # ── 1. Find PDF folder ────────────────────────────────────────────────────
+    # ── 1. Find species folder ────────────────────────────────────────────────
     if not db_only:
-        pdf_folder = find_species_pdf_folder(species_name, gbif_key, lit_root)
-        if pdf_folder is None:
-            summary["warnings"].append("No PDF folder found — skipped")
+        species_folder = find_species_pdf_folder(species_name, gbif_key, lit_root)
+        if species_folder is None:
+            summary["warnings"].append("No species folder found — skipped")
             return summary
 
         # ── 2. Index PDFs ─────────────────────────────────────────────────────
@@ -540,7 +592,7 @@ def process_species(
         index_species = _corpus_mod.process_species
         indexed = index_species(
             species_name=species_key,
-            pdf_dir=pdf_folder,
+            pdf_dir=species_folder,
             output_dir=corpus_dir,
             force=force_index,
         )
@@ -575,7 +627,7 @@ def process_species(
             return summary
 
     # ── 6. Read SQuAI output ──────────────────────────────────────────────────
-    regular_results, pathway_results = read_squai_results(result_file)
+    regular_results, pathway_results = read_squai_results(result_file, species_corpus)
     log.info("  SQuAI answers: %d regular, %d pathway",
              len(regular_results), len(pathway_results))
 
@@ -590,6 +642,11 @@ def process_species(
             summary["skipped"] += 1
             continue
         answer_text = regular_results.get(code)
+        if not answer_text:
+            # MAN codes have subgroup suffixes in the DB (MAN1.Preventability)
+            # but the template uses the base code (MAN1) — try stripping the suffix.
+            base_code = code.split(".")[0]
+            answer_text = regular_results.get(base_code)
         if not answer_text:
             log.warning("  No SQuAI answer for %s", code)
             summary["warnings"].append(f"No answer: {code}")
@@ -661,12 +718,16 @@ def main():
                         help="Re-run SQuAI even if results already exist")
     parser.add_argument("--db_only",      action="store_true",
                         help="Skip indexing/SQuAI; write existing results to DB only")
+    parser.add_argument("--trial",        action="store_true",
+                        help="Trial run: process only the first species and first question")
     args = parser.parse_args()
 
+    trial = args.trial or TRIAL_RUN
     lit_root   = Path(args.lit_root)
     corpus_dir = Path(args.corpus_dir)
     squai_dir  = Path(args.squai_dir).resolve()
     skip_existing = SKIP_EXISTING_JUSTIFICATION
+    force_squai = args.force_squai or FORCE_SQUAI
     species_filter = [args.species] if args.species else SPECIES_FILTER
 
     # Copy DB — all writes go to the copy
@@ -676,6 +737,12 @@ def main():
     # Get assessments
     assessments = get_all_assessments(working_db, species_filter or None)
     log.info("Processing %d assessment(s)", len(assessments))
+
+    if trial:
+        assessments = assessments[:1]
+        args.question = args.question or "ENT1"
+        log.info("TRIAL RUN — limiting to 1 species (%s), question: %s",
+                 assessments[0]["scientificName"] if assessments else "none", args.question)
 
     if not assessments:
         log.warning("No assessments found — check SPECIES_FILTER or DB path")
@@ -693,7 +760,7 @@ def main():
             skip_existing=skip_existing,
             question_filter=args.question,
             force_index=args.force_index,
-            force_squai=args.force_squai,
+            force_squai=force_squai,
             db_only=args.db_only,
         )
         all_summaries.append(summary)

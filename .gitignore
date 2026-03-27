@@ -40,9 +40,6 @@ vignettes/*.pdf
 # R Environment Variables
 .Renviron
 
-# pkgdown site
-docs/
-
 # translation temp files
 po/*~
 
@@ -53,8 +50,11 @@ rsconnect/
 *.db
 databases/
 
-# Claude Code session data
+# Claude Code session data and generated plans
 .claude/
+CLAUDE.md
+PLANNING.md
+docs/superpowers/
 
 # OS files
 .DS_Store
@@ -76,8 +76,15 @@ python/gptr-mcp-master/
 .eggs/
 *.egg
 .env
-.venv
+.venv/
 venv/
+python/.venv/
+*.whl
+pip-log.txt
+pip-delete-this-directory.txt
+
+# SQuAI corpus (generated data, not source)
+python/SQuAI_scripts/squai_corpus/
 
 # Windows reserved names (cause git errors)
 nul
@@ -99,4 +106,9 @@ assessment_report_*.docx
 
 # IDE folders
 .idea/
-*.Rproj.user/
+
+# Generated README (rendered from README.Rmd)
+README.md
+
+# Python instructions cache (generated)
+python/instructions_cache/

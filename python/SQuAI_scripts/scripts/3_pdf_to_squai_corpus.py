@@ -306,7 +306,7 @@ def process_species(species_name: str, pdf_dir: Path,
                     output_dir: Path, force: bool = False) -> Path:
     """
     Full indexing pipeline for one species.
-    Indexes both PDFs (full text) and .txt abstract files written by fetch_literature.py.
+    Indexes PDFs (full text) found recursively under pdf_dir.
     Returns path to the species output directory.
     Skips indexing if indices already exist unless force=True.
     """
@@ -319,10 +319,10 @@ def process_species(species_name: str, pdf_dir: Path,
         log.info("[%s] Indices already exist – skipping indexing (use --force_index to rebuild)", species_name)
         return species_out
 
-    pdfs = sorted(pdf_dir.glob("*.pdf"))
+    pdfs = sorted(pdf_dir.rglob("*.pdf"))
 
     if not pdfs:
-        log.warning("[%s] No PDFs found in %s", species_name, pdf_dir)
+        log.warning("[%s] No PDFs found under %s", species_name, pdf_dir)
         return None
 
     log.info("[%s] Processing %d PDFs…", species_name, len(pdfs))

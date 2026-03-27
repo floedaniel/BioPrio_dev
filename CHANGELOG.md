@@ -1,5 +1,36 @@
 # BioPRIO Changelog
 
+## 2026-03-27: SQuAI Pipeline Improvements + Path Updates
+
+### Summary
+Improved the SQuAI-based justification pipeline with trial mode, better PDF discovery, reference appending, and updated species docs path.
+
+### Changed
+
+#### Path update — all Python scripts
+- `SPECIES_DOCS_BASE_PATH` / `SPECIES_LIT_ROOT` updated from
+  `OneDrive - Folkehelseinstituttet\VKM Data\...`
+  to
+  `OneDrive - Folkehelseinstituttet\Prosjektdata - Dokumenter\VKM Data\...`
+- Affects: `python/get_additional_literature.py`, `python/populate_bioprio_justifications_hybrid.py`, `python/gpt_researcher_scripts/populate_bioprio_justifications_hybrid.py`, `python/SQuAI_scripts/squai_populate_bioprio.py`
+
+#### `python/SQuAI_scripts/squai_populate_bioprio.py`
+- Added `TRIAL_RUN = True` flag — processes only 1 species and 1 question for quick testing
+- Added `--trial` CLI argument (same effect)
+- Added HuggingFace token auto-loading from `C:\Users\dafl\Desktop\API keys\hugging_face.txt`
+- Upgraded model from `Falcon3-1B-Instruct` to `Falcon3-3B-Instruct`
+- Added `FORCE_SQUAI = True` flag — re-runs SQuAI even if results exist
+- Changed `SKIP_EXISTING_JUSTIFICATION` default to `False`
+- Added citation/reference appending to answer text
+- MAN code subgroup suffix handling (e.g., `MAN1.Preventability` → base code `MAN1`)
+- Renamed "PDF folder" to "species folder" in log messages for clarity
+
+#### `python/SQuAI_scripts/scripts/3_pdf_to_squai_corpus.py`
+- Changed `pdf_dir.glob("*.pdf")` to `pdf_dir.rglob("*.pdf")` — now discovers PDFs recursively under the species folder (picks up `literature/` and `literature_additional/` subfolders)
+- Updated docstring to reflect recursive discovery
+
+---
+
 ## 2026-02-27: Additional Literature Fetcher (Python)
 
 ### Summary

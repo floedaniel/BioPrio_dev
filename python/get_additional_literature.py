@@ -24,7 +24,7 @@ import requests
 # =============================================================================
 
 # Output path (same as R script and hybrid populator)
-SPECIES_DOCS_BASE_PATH = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\VKM Data\27.02.2025_maur_forprosjekt_biologisk_mangfold\data\species"
+SPECIES_DOCS_BASE_PATH = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\Prosjektdata - Dokumenter\VKM Data\27.02.2025_maur_forprosjekt_biologisk_mangfold\data\species"
 
 # Database path for species list
 DATABASE_PATH = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\FinnPrio\BioiPRIO_development\databases\ant_test\clean_ants.db"

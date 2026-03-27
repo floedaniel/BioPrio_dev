@@ -428,7 +428,7 @@ The instructions system loads question-specific guidance from `information/Instr
 
 **Configuration:**
 - API keys read from external files at `C:\Users\dafl\Desktop\API keys\`
-- Species docs stored at: `C:\Users\dafl\OneDrive - Folkehelseinstituttet\VKM Data\27.02.2025_maur_forprosjekt_biologisk_mangfold\data\species\`
+- Species docs stored at: `C:\Users\dafl\OneDrive - Folkehelseinstituttet\Prosjektdata - Dokumenter\VKM Data\27.02.2025_maur_forprosjekt_biologisk_mangfold\data\species\`
 - Folder naming: `{GBIF_KEY}_{Species_Name}` (e.g., `11700741_Lasius_aphidicola`)
 
 
