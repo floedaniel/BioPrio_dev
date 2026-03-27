@@ -1,5 +1,25 @@
 # BioPRIO Changelog
 
+## 2026-03-27: Remove FinnPRIO Scripts from BioPRIO Repo
+
+### Summary
+Deleted 9 FinnPRIO plant-pest scripts that were incorrectly living in the BioPRIO repo. All were exact copies of scripts in `FinnPRIO_development/python/` with no BioPRIO adaptations.
+
+### Deleted
+- `python/populate_finnprio_justifications.py`
+- `python/populate_finnprio_justifications_anthropic.py`
+- `python/populate_finnprio_justifications_hybrid.py`
+- `python/populate_finnprio_justifications_local.py`
+- `python/populate_finnprio_justifications_local_fast.py`
+- `python/populate_finnprio_justifications_mcp.py`
+- `python/populate_finnprio_justifications_unified.py`
+- `python/populate_finnprio_values.py`
+- `python/populate_finnprio_values_local.py`
+
+These belong in `FinnPRIO_development`. BioPRIO equivalent is `populate_bioprio_justifications_hybrid.py`.
+
+---
+
 ## 2026-03-27: Cleanup — Remove FinnPRIO_dev_v_1.Rproj + Fix Remaining Paths
 
 ### Summary
