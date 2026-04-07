@@ -25,6 +25,7 @@ import stat
 import time
 from pathlib import Path
 from gpt_researcher import GPTResearcher
+from gpt_researcher.utils.enum import Tone
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass, field
@@ -110,13 +111,17 @@ os.environ['TAVILY_API_KEY'] = load_api_key(TAVILY_API_KEY_FILE)
 # GPT Researcher Configuration
 os.environ.update({
     "TEMPERATURE": "0.1",
-    "LLM_MODEL": "gpt-4o-mini",
-    "LLM_MAX_TOKENS": "4096",
-    "DEEP_RESEARCH_BREADTH": "3",
-    "DEEP_RESEARCH_DEPTH": "2",
-    "MAX_SEARCH_RESULTS_PER_QUERY": "7",
-    "TOTAL_WORDS": "400",
-    "MAX_ITERATIONS": "5",
+    # GPT Researcher requires the '<provider>:<model>' format for these vars.
+    "FAST_LLM": "openai:gpt-4o-mini",
+    "SMART_LLM": "openai:gpt-4o",
+    "STRATEGIC_LLM": "openai:gpt-4o",
+    "MAX_TOKENS": "8000",
+    "MAX_SEARCH_RESULTS_PER_QUERY": "15",
+    "MAX_URLS_TO_SCRAPE": "20",
+    "TOTAL_WORDS": "1000",
+    "MAX_ITERATIONS": "8",
+    "SIMILARITY_THRESHOLD": "0.38",
+    "REPORT_FORMAT": "apa",
 })
 
 # Excluded domains
@@ -236,11 +241,13 @@ class CostTracker:
     def record_question(self, metrics: QuestionMetrics):
         """Record metrics for a question."""
         if self.current_species:
-            # Calculate costs
-            metrics.estimated_llm_cost = (
-                (metrics.input_tokens * self.input_price_per_1m / 1_000_000) +
-                (metrics.output_tokens * self.output_price_per_1m / 1_000_000)
-            )
+            # Use real LLM cost from researcher.get_costs() if available;
+            # otherwise fall back to token × price estimate.
+            if metrics.estimated_llm_cost == 0:
+                metrics.estimated_llm_cost = (
+                    (metrics.input_tokens * self.input_price_per_1m / 1_000_000) +
+                    (metrics.output_tokens * self.output_price_per_1m / 1_000_000)
+                )
             metrics.estimated_search_cost = metrics.search_count * TAVILY_PRICE_PER_SEARCH
             metrics.estimated_total_cost = metrics.estimated_llm_cost + metrics.estimated_search_cost
 
@@ -477,7 +484,7 @@ def clean_markdown_formatting(text: str) -> str:
     text = re.sub(r'_([^_]+)_', r'\1', text)
 
     # Remove markdown links
-    text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
+    text = re.sub(r'\[([^]]+)]\([^)]+\)', r'\1', text)
 
     # Remove markdown tables
     text = re.sub(r'^\s*\|[^\n]+\|\s*$', '', text, flags=re.MULTILINE)
@@ -735,7 +742,7 @@ def get_species_identifiers_for_assessments(db_path: str, assessment_ids: List[i
     return identifiers
 
 
-def get_assessment_info(db_path: str, assessment_id: int) -> Dict:
+def get_assessment_info(db_path: str, assessment_id: int) -> Optional[Dict]:
     """Get assessment details including species and regular questions.
 
     Creates answer rows if they don't exist (needed for script-populated assessments).
@@ -1293,12 +1300,13 @@ async def research_justification(species_name: str, question_code: str, question
     researcher = GPTResearcher(
         query=query,
         report_type="research_report",
-        tone="formal",
+        tone=Tone.Objective,
         report_source=report_source,
     )
 
     max_retries = 5
     base_wait = 5  # seconds
+    report = ""
 
     try:
         start_time = time.time()
@@ -1321,7 +1329,7 @@ async def research_justification(species_name: str, question_code: str, question
                     researcher = GPTResearcher(
                         query=query,
                         report_type="research_report",
-                        tone="formal",
+                        tone=Tone.Objective,
                         report_source=report_source,
                     )
                 else:
@@ -1331,8 +1339,8 @@ async def research_justification(species_name: str, question_code: str, question
         # Remove excluded domain references
         if exclude_domains:
             for domain in exclude_domains:
-                report = re.sub(rf'\[([^\]]+)\]\([^)]*{re.escape(domain)}[^)]*\)', '', report)
-                report = re.sub(rf'https?://[^\s]*{re.escape(domain)}[^\s]*', '', report)
+                report = re.sub(rf'\[([^]]+)]\([^)]*{re.escape(domain)}[^)]*\)', '', report)
+                report = re.sub(rf'https?://\S*{re.escape(domain)}\S*', '', report)
 
         # Clean markdown
         report = clean_markdown_formatting(report)
@@ -1356,17 +1364,13 @@ async def research_justification(species_name: str, question_code: str, question
             max_iterations = int(os.environ.get("MAX_ITERATIONS", "5"))
             metrics.search_count = max_iterations * 2  # Conservative estimate
 
-            # Try to get actual costs from researcher if available
+            # Get actual cost from researcher (per gpt-researcher API: get_costs() -> float)
             try:
-                if hasattr(researcher, 'costs') and researcher.costs:
-                    metrics.estimated_llm_cost = researcher.costs.get('total_cost', 0)
-                if hasattr(researcher, 'token_usage'):
-                    if researcher.token_usage:
-                        metrics.input_tokens = researcher.token_usage.get('prompt_tokens', metrics.input_tokens)
-                        metrics.output_tokens = researcher.token_usage.get('completion_tokens', metrics.output_tokens)
-                        metrics.total_tokens = metrics.input_tokens + metrics.output_tokens
+                actual_cost = researcher.get_costs()
+                if actual_cost:
+                    metrics.estimated_llm_cost = actual_cost
             except Exception:
-                pass  # Use estimates if actual values unavailable
+                pass  # Fall back to token-based estimate in CostTracker.record_question
 
             print(f"⏱️  Duration: {metrics.duration_seconds:.1f}s | "
                   f"Tokens: ~{metrics.total_tokens:,} | "
@@ -1654,7 +1658,9 @@ async def main(source_db: str = DEFAULT_DB_PATH,
 
     # Initialize cost tracker
     if track_costs:
-        model_name = os.environ.get("LLM_MODEL", "gpt-4o-mini")
+        # SMART_LLM is in '<provider>:<model>' format; strip the provider for the price lookup.
+        smart_llm_env = os.environ.get("SMART_LLM", "gpt-4o-mini")
+        model_name = smart_llm_env.split(":", 1)[-1]
         cost_tracker = CostTracker(model_name=model_name)
         print(f"💰 Tracking costs for model: {model_name}")
 
@@ -1748,8 +1754,8 @@ async def main(source_db: str = DEFAULT_DB_PATH,
         print(f"Estimated TOTAL cost: ${totals['estimated_total_cost']:.4f}")
         print(f"Total duration: {totals['total_duration_seconds']/60:.1f} minutes")
 
-        # Export to Excel
-        excel_path = cost_tracker.export_to_excel(output_dir)
+        # Export to Excel (prints saved location internally)
+        cost_tracker.export_to_excel(output_dir)
 
     print("\n" + "=" * 80)
     print("✅ COMPLETED")

@@ -1,5 +1,21 @@
 # BioPRIO Changelog
 
+## 2026-04-07: GPT Researcher pipeline — bug fixes, real cost tracking, scientific tuning
+
+### Summary
+Audited `populate_bioprio_justifications_hybrid.py` against the project-local `gpt-researcher` skill and fixed several latent bugs (silent env-var overrides, fabricated cost tracking, wrong `tone` type). Tuned settings for thorough scientific output and documented the skill in CLAUDE.md.
+
+### Changed
+- `python/gpt_researcher_scripts/populate_bioprio_justifications_hybrid.py`:
+  - **Env var fixes**: replaced non-existent `LLM_MODEL` / `LLM_MAX_TOKENS` with the actual GPT Researcher keys (`FAST_LLM`, `SMART_LLM`, `STRATEGIC_LLM`, `MAX_TOKENS`). Values now use the required `<provider>:<model>` format (e.g. `openai:gpt-4o`); the previous bare-name values were silently rejected at runtime.
+  - **Tone enum**: imported `Tone` from `gpt_researcher.utils.enum` and replaced the string `"formal"` with `Tone.Objective` (the API expects the enum).
+  - **Real cost tracking**: now reads `researcher.get_costs()` after each query; `CostTracker.record_question` only falls back to the token-estimate math when no real cost is available. Previous estimates were ~16× too low.
+  - **Scientific tuning** (per `gpt-researcher` skill best practices): upgraded `SMART_LLM`/`STRATEGIC_LLM` to `gpt-4o`; raised `MAX_TOKENS` 4096→8000, `TOTAL_WORDS` 400→1000, `MAX_SEARCH_RESULTS_PER_QUERY` 10→15, `MAX_ITERATIONS` 5→8; added `MAX_URLS_TO_SCRAPE=20`, `SIMILARITY_THRESHOLD=0.38`, `REPORT_FORMAT=apa`. Dropped dead `DEEP_RESEARCH_BREADTH`/`DEEP_RESEARCH_DEPTH` config (only honoured under `report_type="deep"`, but the script uses `research_report`).
+  - **Static-analysis bug fixes**: initialised `report = ""` before the retry loop so it can't be referenced unbound on a non-rate-limit failure; removed redundant `\]` escapes outside character classes; widened `get_assessment_info` return type to `Optional[Dict]`; dropped unused `excel_path` assignment (the helper already prints internally).
+- `CLAUDE.md`: added a new "GPT Researcher Skill" subsection pointing to `.agents/skills/gpt-researcher/` with a quick-lookup table for the reference docs and a list of critical gotchas distilled from past debugging.
+
+---
+
 ## 2026-04-07: Cleanup, gitignore updates, and script improvements
 
 ### Summary

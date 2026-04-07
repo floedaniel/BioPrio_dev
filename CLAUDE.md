@@ -443,6 +443,29 @@ The instructions system loads question-specific guidance from `Instructions_BioP
 - Species docs stored at: `C:\Users\dafl\OneDrive - Folkehelseinstituttet\Prosjektdata - Dokumenter\VKM Data\27.02.2025_maur_forprosjekt_biologisk_mangfold\data\species\`
 - Folder naming: `{GBIF_KEY}_{Species_Name}` (e.g., `11700741_Lasius_aphidicola`)
 
+### GPT Researcher Skill (`.agents/skills/gpt-researcher/`)
+
+When debugging or extending the GPT Researcher pipeline (`populate_bioprio_justifications*.py`), consult the project-local skill at `.agents/skills/gpt-researcher/`. Start with `SKILL.md`, then drill into references as needed:
+
+| Need | Reference |
+|------|-----------|
+| Env vars, LLM/retriever/report config | `references/config-reference.md` |
+| System architecture & data flow | `references/architecture.md`, `references/flows.md` |
+| Core classes & method signatures | `references/components.md` |
+| Adding a new feature (8-step pattern) | `references/adding-features.md` |
+| Adding/registering a retriever | `references/retrievers.md` |
+| Deep research mode (`report_type="deep"`) | `references/deep-research.md` |
+| MCP data sources | `references/mcp.md` |
+| Prompt customization | `references/prompts.md` |
+| REST/WebSocket API | `references/api-reference.md` |
+
+**Critical gotchas surfaced by the skill** (have bitten us):
+- LLM env vars require `<provider>:<model>` format — e.g. `SMART_LLM=openai:gpt-4o`, NOT `gpt-4o`
+- Config keys are lowercased at access time — `config.smart_llm`, not `config.SMART_LLM`
+- `DEEP_RESEARCH_*` env vars only fire when `report_type="deep"` — they are dead config under `research_report`
+- Use `Tone` enum (`from gpt_researcher.utils.enum import Tone`) for the `tone=` arg, not strings
+- Real LLM cost is exposed via `researcher.get_costs() -> float` — don't fabricate from token estimates
+
 
 ## References
 
