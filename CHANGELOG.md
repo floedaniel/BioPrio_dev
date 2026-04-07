@@ -1,5 +1,33 @@
 # BioPRIO Changelog
 
+## 2026-04-07: Cleanup, gitignore updates, and script improvements
+
+### Summary
+Root-folder cleanup, .gitignore additions, and refactors/fixes to several scripts.
+
+### Changed
+- `.gitignore`: added `tests/`, `docs/`
+- `CLAUDE.md`: file structure tree updated to current layout (removed `docs/plans/` and `PLANNING.md`, added `python/support/`, `python/gpt_researcher_scripts/`); fixed Python script paths and Rmd reference
+- `Instructions_BioPrio_assessments.rmd`: dropped GBIF/CABI Compendium reference from ENT1 guidance
+- `python/gpt_researcher_scripts/parse_bioprio_instructions.py`: fixed `DEFAULT_RMD_PATH` to point to repo root
+- `python/gpt_researcher_scripts/populate_bioprio_justifications_hybrid.py`: consolidated `force_rmtree` helper, simplified rate-limit detection, dropped dead `searches_per_iter` var
+- `scripts/get litterature/get_species_literature.R`: added EuropePMC PMCID-based PDF URL (free, no API call) ahead of Unpaywall in fallback chain
+- `scripts/populate database/populate_ant_species.R`: refactored to loop over threat categories from `maxent_threat_category.csv`, producing one DB per category (`ants_Minimal.db`, `ants_Low.db`, etc.)
+
+### Added
+- `python/support/check_funding.py`: utility that reports OpenAI account status, quota, credits, usage, and accessible models from a single API key
+
+### Removed
+- `_query_ent1.js`, `_query_ent1.py`: scratch debug files
+- `reformulated_questions.Rmd`: superseded source notes (terminology migration is complete)
+- `documentatio/`: typo'd folder, renamed to `documentation/` (4 reference papers preserved)
+- `python/CHANGELOG.md`: stale FinnPRIO-era changelog
+- `python/SQuAI_scripts/CLAUDE_squai_original.md`: upstream SQuAI repo doc, not relevant to BioPRIO
+- `docs/plans/*`: 8 stale design docs (terminology and hybrid-justification work is implemented)
+- `PLANNING.md`: stale terminology phase tracker (work completed; see this changelog for history)
+
+---
+
 ## 2026-03-27: Update Docs to Reflect Correct Python Script Locations
 
 ### Summary

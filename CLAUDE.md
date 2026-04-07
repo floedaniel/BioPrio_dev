@@ -27,21 +27,27 @@ BioiPRIO_development/
 │   ├── simulations.R               # Monte Carlo scoring logic (NEVER MODIFY)
 │   └── sqlite queries.R            # Database queries
 ├── scripts/                        # Support scripts
-│   ├── database management/        # DB utilities
+│   ├── database management scripts/  # DB utilities
+│   ├── div support scripts/        # Diagnostics
+│   ├── get litterature/            # Literature fetching (R)
 │   ├── migration scripts/          # Data migration
-│   ├── populate database/          # Data population
-│   └── div support/                # Diagnostics
+│   ├── populate database/          # BioPRIO species population (ant_species)
+│   ├── populate database scripts/  # FinnPRIO/EPPO populator (legacy)
+│   └── terminology_migration/      # Terminology migration (FinnPRIO → BioPRIO)
+├── python/                         # Python AI enhancement (see Python section below)
+│   ├── gpt_researcher_scripts/     # GPT Researcher pipeline (BioPRIO)
+│   ├── SQuAI_scripts/              # SQuAI local-RAG pipeline
+│   └── support/                    # Literature, instructions, utility scripts
 ├── www/                            # Web assets
 │   ├── instructions.html           # User guide (terminology updates OK)
 │   └── styles.css                  # Styling
-├── databases/                      # SQLite databases
-│   └── *.sqlite                    # Question text lives here
-├── docs/plans/                     # Design documents
+├── databases/                      # SQLite databases (gitignored)
 ├── ui.R                            # Shiny UI
 ├── server.R                        # Shiny server logic
 ├── global.R                        # Global setup
+├── Instructions_BioPrio_assessments.rmd  # AI prompt source (per-question guidance)
 ├── CLAUDE.md                       # This file
-└── PLANNING.md                     # Implementation plan
+└── CHANGELOG.md                    # Version history
 ```
 
 ## Key Technical Details
@@ -86,7 +92,7 @@ Work is defined by verifiable outcomes:
 
 - **Language**: R
 - **Framework**: Shiny (web application framework)
-- **Database**: SQLite (FinnPrio_DB.db)
+- **Database**: SQLite (selected at runtime via file chooser)
 - **Key Packages**:
   - UI: shiny, shinyjs, shinyFiles, shinythemes, shinyalert, shinyWidgets, DT
   - Data: DBI, RSQLite, tidyverse, lubridate, glue, jsonlite, fs
@@ -150,7 +156,7 @@ The application provides full CRUD (Create, Read, Update, Delete) functionality 
 
 ### Database Schema
 
-The SQLite database (FinnPrio_DB.db) follows this structure:
+The SQLite database follows this structure:
 
 **Core Tables:**
 - `assessments`: Main assessment records linking pests, assessors, dates, validity status
@@ -408,24 +414,25 @@ Python scripts for automatically generating justifications, populating values, a
 - `populate_bioprio_justifications.py`: Web-based research using GPT Researcher
 - `populate_bioprio_justifications_hybrid.py`: Hybrid mode (web + local PDFs)
 - `populate_bioprio_values.py`: Determines min/likely/max values from justifications
+- `parse_bioprio_instructions.py`: Parses `Instructions_BioPrio_assessments.rmd` to structured JSON
+- `bioprio_instructions_loader.py`: Loads JSON, builds question-specific AI prompts
+- `instructions_cache/`: Generated JSON cache
 
 **SQuAI pipeline (`python/SQuAI_scripts/`):**
 - `squai_populate_bioprio.py`: Local PDF RAG justification pipeline (no API key needed)
 - `scripts/3_pdf_to_squai_corpus.py`: Indexes PDFs recursively into SQuAI corpus
 
-**Literature Fetching:**
-- `python/get_additional_literature.py`: Fetches papers from Semantic Scholar and CORE APIs
+**Support utilities (`python/support/`):**
+- `get_additional_literature.py`: Fetches papers from Semantic Scholar and CORE APIs
+- `check_funding.py`: Reports OpenAI account status, quota, and credits
+- `view_justifications.py`: Inspect generated justifications in a database
+- `parse_rmd_instructions.py` / `instructions_loader.py`: FinnPRIO-era equivalents of the BioPRIO parser/loader (legacy)
 
-**Instructions System (v2.0):**
-- `python/parse_rmd_instructions.py`: Parses Rmd to structured JSON with options and guidance
-- `python/instructions_loader.py`: Loads JSON, builds prompts for AI scripts
-- `python/instructions_cache/`: Cache directory for generated JSON
-
-The instructions system loads question-specific guidance from `information/Instructions_FinnPRIO_assessments.Rmd` with explicit thresholds (km², ha, kg) for accurate AI value selection.
+The instructions system loads question-specific guidance from `Instructions_BioPrio_assessments.rmd` (repo root) with explicit thresholds (km², ha, kg) for accurate AI value selection.
 
 **Workflow:**
-1. Run `python/get_additional_literature.py` to fetch PDFs from Semantic Scholar/CORE
-2. Run R script `get_species_literature.R` to fetch PDFs from EuropePMC/PubMed/CrossRef/OpenAlex
+1. Run `python/support/get_additional_literature.py` to fetch PDFs from Semantic Scholar/CORE
+2. Run R script `scripts/get litterature/get_species_literature.R` to fetch PDFs from EuropePMC/PubMed/CrossRef/OpenAlex
 3. Run `python/gpt_researcher_scripts/populate_bioprio_justifications_hybrid.py` to generate justifications using web + local PDFs
    — OR — Run `python/SQuAI_scripts/squai_populate_bioprio.py` for local-only (no API key)
 4. Run `python/gpt_researcher_scripts/populate_bioprio_values.py` to determine values from justifications
@@ -439,7 +446,6 @@ The instructions system loads question-specific guidance from `information/Instr
 
 ## References
 
-- Design document: `docs/plans/2026-02-17-bioprio-terminology-design.md`
 - Original paper: Heikkilä et al. (2016) Biological Invasions 18:1827-1842
 - CBD Pathways: https://www.eea.europa.eu/policy-documents/cbd-2014-pathways-of-introduction
 - Changelog: See **CHANGELOG.md** for detailed version history

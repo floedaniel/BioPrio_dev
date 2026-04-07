@@ -50,11 +50,8 @@ rsconnect/
 *.db
 databases/
 
-# Claude Code session data and generated plans
+# Claude Code session data
 .claude/
-CLAUDE.md
-PLANNING.md
-docs/superpowers/
 
 # OS files
 .DS_Store
