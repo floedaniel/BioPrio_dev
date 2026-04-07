@@ -78,3 +78,4 @@ launch_app <- function(preferred_port = 3838) {
 }
 
 launch_app(preferred_port = 3838)
+

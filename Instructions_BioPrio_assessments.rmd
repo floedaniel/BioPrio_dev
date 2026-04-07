@@ -53,7 +53,7 @@ The distribution exceeds approximately 20 million km² (larger than Russia, or s
 ### Guidance
 
 - Estimate the total area of the species's known global distribution based on reported presence in countries and other administrative units
-- Use distribution records from authoritative sources such as GBIF, CABI Compendium, or peer-reviewed literature
+- Use distribution records from authoritative sources or peer-reviewed literature
 - Include both native and introduced ranges/countries
 - Compare the combined area of affected countries/territories to the size thresholds above (based on Gall-Peters equal-area projection)
 - When distribution within a country is highly restricted (e.g. a single outbreak site), consider whether the full country area should be counted
@@ -89,7 +89,7 @@ Take into account:
 - Treatments related to export and transport
 - Species's potential to survive without suitable hosts, prey, or habitats
 - Species's potential to withstand temperature variations, dryness and lack of energy
-- Information about interceptions from relevant databases (e.g., EUROPHYT, TRACES NT, CITES trade database, national border inspection records)
+- Information about interceptions from relevant databases
 
 Do NOT take into account:
 - Whether the commodity is traded to the risk assessment area
@@ -122,7 +122,7 @@ Transportation would be very likely, and there are no effective measures in legi
 ### Guidance
 
 - Consider all factors from ENT2A
-- Additionally consider measures required in biosecurity legislation (plant health, animal health, CITES, environmental protection, biological control regulations)
+- Additionally consider measures required in biosecurity legislation 
 - Current distribution of the species should now be taken into account
 
 ---

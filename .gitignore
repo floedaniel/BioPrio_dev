@@ -94,6 +94,12 @@ _ul*
 # Species literature PDFs (large binary data, not source code)
 species_literature/
 
+# Tests folder (local test artifacts, not source)
+tests/
+
+# Docs folder (local documentation, not source)
+docs/
+
 # Nested git repos (use submodules if needed)
 python/SQuAI_scripts/squai_repo/
 

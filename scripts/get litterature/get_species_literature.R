@@ -159,9 +159,8 @@ search_europepmc <- function(term, limit) {
 
     res %>%
       filter(!is.na(doi)) %>%
-      filter(str_detect(title, regex(term, ignore_case = TRUE))) %>%
-      select(title, doi, any_of(c("pubYear", "citedByCount"))) %>%
-      rename_with(~ c("title", "doi", "year", "citations")[seq_along(.)]) %>%
+      select(title, doi, any_of(c("pmcid", "pubYear", "citedByCount"))) %>%
+      rename_with(~ c("title", "doi", "pmcid", "year", "citations")[seq_along(.)]) %>%
       mutate(source = "EuropePMC")
   }, error = function(e) {
     log_msg("EuropePMC error: ", e$message)
@@ -400,9 +399,21 @@ get_pmc_pdf_url <- function(doi) {
   }, error = function(e) NULL)
 }
 
+#' Get direct PDF URL from EuropePMC using PMCID
+get_europepmc_pdf_url <- function(pmcid) {
+  if (is.null(pmcid) || is.na(pmcid) || pmcid == "") return(NULL)
+  # Strip "PMC" prefix if present, then reconstruct
+  id <- sub("^PMC", "", pmcid)
+  paste0("https://europepmc.org/backend/ptpmcrender.fcgi?accid=PMC", id, "&blobtype=pdf")
+}
+
 #' Try to find PDF URL from multiple sources
-find_pdf_url <- function(doi, email) {
-  # Try Unpaywall first (best source for legal OA PDFs)
+find_pdf_url <- function(doi, email, pmcid = NULL) {
+  # Try EuropePMC direct link first (free, no API call needed)
+  url <- get_europepmc_pdf_url(pmcid)
+  if (!is.null(url)) return(list(url = url, source = "EuropePMC"))
+
+  # Try Unpaywall
   url <- get_unpaywall_url(doi, email)
   if (!is.null(url)) return(list(url = url, source = "Unpaywall"))
 
@@ -414,7 +425,7 @@ find_pdf_url <- function(doi, email) {
 
   rate_limit(0.3)
 
-  # Try PMC
+  # Try PMC via Entrez
   url <- get_pmc_pdf_url(doi)
   if (!is.null(url)) return(list(url = url, source = "PMC"))
 
@@ -553,6 +564,7 @@ process_species <- function(species, base_dir, email, max_results, from_date, gb
   for (i in seq_len(nrow(results))) {
     doi <- results$doi[i]
     title <- results$title[i]
+    pmcid <- if ("pmcid" %in% names(results)) results$pmcid[i] else NULL
 
     log_msg("[", i, "/", nrow(results), "] ", str_trunc(title, 50))
 
@@ -569,7 +581,7 @@ process_species <- function(species, base_dir, email, max_results, from_date, gb
     }
 
     # Find PDF URL
-    pdf_info <- find_pdf_url(doi, email)
+    pdf_info <- find_pdf_url(doi, email, pmcid)
 
     if (is.null(pdf_info)) {
       log_msg("  -> No PDF URL found")

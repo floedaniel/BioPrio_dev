@@ -30,9 +30,8 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 # Default paths - BioPRIO specific
-DEFAULT_RMD_PATH = Path(__file__).parent.parent / "Instructions_BioPrio_assessments.rmd"
+DEFAULT_RMD_PATH = Path(__file__).parent.parent.parent / "Instructions_BioPrio_assessments.rmd"
 DEFAULT_JSON_PATH = Path(__file__).parent / "instructions_cache" / "bioprio_instructions.json"
-
 
 class RmdParsingError(Exception):
     """Raised when Rmd parsing fails"""

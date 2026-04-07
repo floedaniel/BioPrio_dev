@@ -6,8 +6,10 @@
 # Adapted from FinnPRIO EPPO scripts for species without EPPO codes (e.g., ants).
 #
 # Usage:
-#   1. Set configuration below (DB_FILE, SPECIES_NAMES, DEFAULT_ASSESSOR_ID)
+#   1. Set configuration below (SOURCE_DB, DEFAULT_ASSESSOR_ID)
 #   2. Run: source("scripts/populate database/populate_ant_species.R")
+#
+# Output: One database per threat category (ants_Minimal.db, ants_Low.db, etc.)
 #
 ################################################################################
 
@@ -15,31 +17,23 @@ library(DBI)
 library(RSQLite)
 library(rgbif)
 library(tidyverse)
+library(rio)
 
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
 
-SOURCE_DB  <- "C:/Users/dafl/OneDrive - Folkehelseinstituttet/FinnPrio/BioiPRIO_development/databases/clean_database/clean.db"
-DB_FILE    <- "C:/Users/dafl/OneDrive - Folkehelseinstituttet/FinnPrio/BioiPRIO_development/databases/ants/ants.db"
+SOURCE_DB <- "C:/Users/dafl/OneDrive - Folkehelseinstituttet/FinnPrio/BioiPRIO_development/databases/clean_database/clean.db"
+DB_DIR    <- "C:/Users/dafl/OneDrive - Folkehelseinstituttet/FinnPrio/BioiPRIO_development/databases/ants"
 
 if (!file.exists(SOURCE_DB)) stop("Source database not found: ", SOURCE_DB)
-dir.create(dirname(DB_FILE), showWarnings = FALSE, recursive = TRUE)
-file.copy(SOURCE_DB, DB_FILE, overwrite = TRUE)
+dir.create(DB_DIR, showWarnings = FALSE, recursive = TRUE)
 
-# Species directory - names are derived from folder structure at runtime
-SPECIES_DIR <- "C:/Users/dafl/OneDrive - Folkehelseinstituttet/Prosjektdata - Dokumenter/VKM Data/27.02.2025_maur_forprosjekt_biologisk_mangfold/data/species"
-
-# Derive species names from folders matching pattern: {GBIF_KEY}_{Genus}_{species}*
-# Folders with only a numeric name (no species part) are skipped
-folders <- list.dirs(SPECIES_DIR, full.names = FALSE, recursive = FALSE)
-SPECIES_NAMES <- folders |>
-  grep(pattern = "^\\d+_[A-Z][a-z]+_[a-z]+", value = TRUE) |>
-  sub(pattern = "^\\d+_", replacement = "") |>
-  strsplit(split = "_") |>
-  sapply(function(parts) paste(parts[1], parts[2])) |>
-  unique() |>
-  sort()
+# Load and prepare threat categories
+risk_cat <- rio::import("C:/Users/dafl/OneDrive - Folkehelseinstituttet/Prosjektdata - Dokumenter/VKM Data/27.02.2025_maur_forprosjekt_biologisk_mangfold/data/5_outputs/tables/maxent_threat_category.csv")
+risk_cat <- risk_cat %>% select(species, threat_category)
+risk_cat$threat_category <- factor(risk_cat$threat_category, levels = c("Minimal", "Low", "Moderate", "High"))
+risk_cat <- risk_cat[order(risk_cat$threat_category), ]
 
 # Default assessor ID - check your assessors table for valid IDs
 DEFAULT_ASSESSOR_ID <- 3L
@@ -132,115 +126,137 @@ get_distribution_summary <- function(gbif_key) {
 }
 
 # =============================================================================
-# MAIN SCRIPT
+# MAIN SCRIPT — loop over threat categories
 # =============================================================================
 
-# Connect to database
-if (!file.exists(DB_FILE)) stop("Database not found: ", DB_FILE)
-con <- dbConnect(RSQLite::SQLite(), DB_FILE)
-on.exit(dbDisconnect(con))
+for (category in levels(risk_cat$threat_category)) {
 
-cat("\n[BioPRIO] Processing", length(SPECIES_NAMES), "species\n")
-cat("[BioPRIO] Database:", DB_FILE, "\n\n")
+  # Derive species names from folder-style entries for this category
+  SPECIES_NAMES <- risk_cat %>%
+    filter(threat_category == category) %>%
+    pull(species) %>%
+    grep(pattern = "^\\d+_[A-Z][a-z]+_[a-z]+", value = TRUE) %>%
+    sub(pattern = "^\\d+_", replacement = "") %>%
+    strsplit(split = "_") %>%
+    sapply(function(parts) paste(parts[1], parts[2])) %>%
+    unique() %>%
+    sort()
 
-# Get starting IDs
-max_pest <- dbGetQuery(con, "SELECT MAX(idPest) as m FROM pests")$m
-next_pest_id <- if (is.na(max_pest)) 1 else max_pest + 1
-
-max_assess <- dbGetQuery(con, "SELECT MAX(idAssessment) as m FROM assessments")$m
-next_assessment_id <- if (is.na(max_assess)) 1 else max_assess + 1
-
-today <- format(Sys.Date(), "%Y-%m-%d")
-added_pests <- 0
-added_assessments <- 0
-
-# Process each species
-for (i in seq_along(SPECIES_NAMES)) {
-  species_name <- SPECIES_NAMES[i]
-  cat("[", i, "/", length(SPECIES_NAMES), "] ", species_name, "\n", sep = "")
-
-  # Check if exists
-  existing <- dbGetQuery(con, "SELECT idPest FROM pests WHERE scientificName = ?",
-                         params = list(species_name))
-
-  if (nrow(existing) > 0 && PEST_EXISTS_MODE == "skip") {
-    cat("  Skipped - already exists\n")
-    pest_id <- existing$idPest
-  } else {
-    # Fetch GBIF data
-    gbif <- get_gbif_taxonomy(species_name)
-    if (is.null(gbif)) {
-      cat("  WARNING: Not found in GBIF\n")
-      gbif <- list(scientificName = species_name, gbifKey = NA_character_,
-                   vernacularName = NA_character_, synonyms = NA_character_)
-    }
-
-    in_europe <- check_europe_presence(gbif$gbifKey)
-
-    if (nrow(existing) > 0) {
-      # Update existing
-      pest_id <- existing$idPest
-      dbExecute(con, "UPDATE pests SET synonyms=?, vernacularName=?, gbifTaxonKey=?, inEurope=? WHERE idPest=?",
-                params = list(na_to_default(gbif$synonyms), na_to_default(gbif$vernacularName),
-                              na_to_default(gbif$gbifKey), in_europe, pest_id))
-      cat("  Updated pest ID:", pest_id, "\n")
-    } else {
-      # Insert new
-      pest_id <- next_pest_id
-      dbExecute(con,
-                "INSERT INTO pests (idPest, scientificName, eppoCode, synonyms, vernacularName,
-                                    gbifTaxonKey, idTaxa, idQuarantineStatus, inEurope)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                params = list(pest_id, gbif$scientificName, "",
-                              na_to_default(gbif$synonyms), na_to_default(gbif$vernacularName),
-                              na_to_default(gbif$gbifKey), DEFAULT_TAXA_ID, DEFAULT_QUARANTINE_ID, in_europe))
-      cat("  Added pest ID:", pest_id, "\n")
-      next_pest_id <- next_pest_id + 1
-      added_pests <- added_pests + 1
-    }
+  if (length(SPECIES_NAMES) == 0) {
+    cat("\n[BioPRIO] No species for category:", category, "— skipping\n")
+    next
   }
 
-  # Create assessment
-  if (CREATE_ASSESSMENTS) {
-    existing_assess <- dbGetQuery(con, "SELECT idAssessment FROM assessments WHERE idPest = ? LIMIT 1",
-                                  params = list(pest_id))
+  DB_FILE <- file.path(DB_DIR, paste0("ants_", category, ".db"))
+  file.copy(SOURCE_DB, DB_FILE, overwrite = TRUE)
 
-    if (nrow(existing_assess) > 0 && ASSESSMENT_EXISTS_MODE == "skip") {
-      cat("  Assessment exists - skipped\n")
+  cat("\n[BioPRIO] Category:", category, "—", length(SPECIES_NAMES), "species\n")
+  cat("[BioPRIO] Database:", DB_FILE, "\n\n")
+
+  con <- dbConnect(RSQLite::SQLite(), DB_FILE)
+
+  # Get starting IDs
+  max_pest <- dbGetQuery(con, "SELECT MAX(idPest) as m FROM pests")$m
+  next_pest_id <- if (is.na(max_pest)) 1 else max_pest + 1
+
+  max_assess <- dbGetQuery(con, "SELECT MAX(idAssessment) as m FROM assessments")$m
+  next_assessment_id <- if (is.na(max_assess)) 1 else max_assess + 1
+
+  today <- format(Sys.Date(), "%Y-%m-%d")
+  added_pests <- 0
+  added_assessments <- 0
+
+  # Process each species
+  for (i in seq_along(SPECIES_NAMES)) {
+    species_name <- SPECIES_NAMES[i]
+    cat("[", i, "/", length(SPECIES_NAMES), "] ", species_name, "\n", sep = "")
+
+    # Check if exists
+    existing <- dbGetQuery(con, "SELECT idPest FROM pests WHERE scientificName = ?",
+                           params = list(species_name))
+
+    if (nrow(existing) > 0 && PEST_EXISTS_MODE == "skip") {
+      cat("  Skipped - already exists\n")
+      pest_id <- existing$idPest
     } else {
-      # Get distribution for notes
-      notes <- ""
-      if (FETCH_DISTRIBUTION) {
-        gbif_key <- dbGetQuery(con, "SELECT gbifTaxonKey FROM pests WHERE idPest = ?",
-                               params = list(pest_id))$gbifTaxonKey
-        if (!is.na(gbif_key) && nchar(gbif_key) > 0) {
-          dist <- get_distribution_summary(gbif_key)
-          if (!is.na(dist)) notes <- dist
+      # Fetch GBIF data
+      gbif <- get_gbif_taxonomy(species_name)
+      if (is.null(gbif)) {
+        cat("  WARNING: Not found in GBIF\n")
+        gbif <- list(scientificName = species_name, gbifKey = NA_character_,
+                     vernacularName = NA_character_, synonyms = NA_character_)
+      }
+
+      in_europe <- check_europe_presence(gbif$gbifKey)
+
+      if (nrow(existing) > 0) {
+        # Update existing
+        pest_id <- existing$idPest
+        dbExecute(con, "UPDATE pests SET synonyms=?, vernacularName=?, gbifTaxonKey=?, inEurope=? WHERE idPest=?",
+                  params = list(na_to_default(gbif$synonyms), na_to_default(gbif$vernacularName),
+                                na_to_default(gbif$gbifKey), in_europe, pest_id))
+        cat("  Updated pest ID:", pest_id, "\n")
+      } else {
+        # Insert new
+        pest_id <- next_pest_id
+        dbExecute(con,
+                  "INSERT INTO pests (idPest, scientificName, eppoCode, synonyms, vernacularName,
+                                      gbifTaxonKey, idTaxa, idQuarantineStatus, inEurope)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                  params = list(pest_id, gbif$scientificName, "",
+                                na_to_default(gbif$synonyms), na_to_default(gbif$vernacularName),
+                                na_to_default(gbif$gbifKey), DEFAULT_TAXA_ID, DEFAULT_QUARANTINE_ID, in_europe))
+        cat("  Added pest ID:", pest_id, "\n")
+        next_pest_id <- next_pest_id + 1
+        added_pests <- added_pests + 1
+      }
+    }
+
+    # Create assessment
+    if (CREATE_ASSESSMENTS) {
+      existing_assess <- dbGetQuery(con, "SELECT idAssessment FROM assessments WHERE idPest = ? LIMIT 1",
+                                    params = list(pest_id))
+
+      if (nrow(existing_assess) > 0 && ASSESSMENT_EXISTS_MODE == "skip") {
+        cat("  Assessment exists - skipped\n")
+      } else {
+        # Get distribution for notes
+        notes <- ""
+        if (FETCH_DISTRIBUTION) {
+          gbif_key <- dbGetQuery(con, "SELECT gbifTaxonKey FROM pests WHERE idPest = ?",
+                                 params = list(pest_id))$gbifTaxonKey
+          if (!is.na(gbif_key) && nchar(gbif_key) > 0) {
+            dist <- get_distribution_summary(gbif_key)
+            if (!is.na(dist)) notes <- dist
+          }
+        }
+
+        if (nrow(existing_assess) > 0) {
+          # Update notes only
+          dbExecute(con, "UPDATE assessments SET notes = ? WHERE idAssessment = ?",
+                    params = list(notes, existing_assess$idAssessment))
+          cat("  Updated assessment ID:", existing_assess$idAssessment, "\n")
+        } else {
+          # Create new assessment
+          dbExecute(con,
+                    "INSERT INTO assessments (idAssessment, idPest, idAssessor, startDate, hosts, notes, version, finished, valid)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    params = list(next_assessment_id, pest_id, DEFAULT_ASSESSOR_ID, today, "", notes, "2.1", 0L, 0L))
+
+          # Add default entry pathway
+          dbExecute(con, "INSERT INTO entryPathways (idAssessment, idPathway) VALUES (?, ?)",
+                    params = list(next_assessment_id, 8L))
+
+          cat("  Created assessment ID:", next_assessment_id, "\n")
+          next_assessment_id <- next_assessment_id + 1
+          added_assessments <- added_assessments + 1
         }
       }
-
-      if (nrow(existing_assess) > 0) {
-        # Update notes only
-        dbExecute(con, "UPDATE assessments SET notes = ? WHERE idAssessment = ?",
-                  params = list(notes, existing_assess$idAssessment))
-        cat("  Updated assessment ID:", existing_assess$idAssessment, "\n")
-      } else {
-        # Create new assessment
-        dbExecute(con,
-                  "INSERT INTO assessments (idAssessment, idPest, idAssessor, startDate, hosts, notes, version, finished, valid)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                  params = list(next_assessment_id, pest_id, DEFAULT_ASSESSOR_ID, today, "", notes, "2.1", 0L, 0L))
-
-        # Add default entry pathway
-        dbExecute(con, "INSERT INTO entryPathways (idAssessment, idPathway) VALUES (?, ?)",
-                  params = list(next_assessment_id, 8L))
-
-        cat("  Created assessment ID:", next_assessment_id, "\n")
-        next_assessment_id <- next_assessment_id + 1
-        added_assessments <- added_assessments + 1
-      }
     }
   }
+
+  dbDisconnect(con)
+  cat("\n[BioPRIO] Category", category, "done. Added", added_pests, "pests,", added_assessments, "assessments.\n")
 }
 
-cat("\n[BioPRIO] Done. Added", added_pests, "pests,", added_assessments, "assessments.\n")
+cat("\n[BioPRIO] All categories complete.\n")

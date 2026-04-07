@@ -21,6 +21,7 @@ import os
 import asyncio
 import sqlite3
 import shutil
+import stat
 import time
 from pathlib import Path
 from gpt_researcher import GPTResearcher
@@ -57,17 +58,17 @@ except ImportError:
 SKIP_EXISTING_JUSTIFICATION = True
 
 # DATABASE PATH - UPDATE THIS IF YOU ADDED PATHWAYS
-DEFAULT_DB_PATH = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\FinnPrio\BioiPRIO_development\databases\ant_test\clean_ants.db"
+DEFAULT_DB_PATH = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\FinnPrio\BioiPRIO_development\databases\ants\ants_High.db"
 
 # Alternative: path to update already existing AI-enhanced database
 # DEFAULT_DB_PATH = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\FinnPrio\BioiPRIO_development\databases\ant_test\clean_ants_ai_enhanced_19_02_2026.db"
 
 # Output directory (new copy will be created here)
-DEFAULT_OUTPUT_DIR = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\FinnPrio\BioiPRIO_development\databases\ant_test"
+DEFAULT_OUTPUT_DIR = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\FinnPrio\BioiPRIO_development\databases\ants_ai"
 
 # Filter by species identifiers (empty list = process all species)
 # Supports: EPPO codes, scientific names, or GBIF taxon keys ["1315155", "1317433"]
-SPECIES_FILTER = []
+SPECIES_FILTER = [ ]
 
 # Filter by question code (None = process all questions)
 # Example: QUESTION_FILTER = "EST2"  # Only process EST2
@@ -89,9 +90,8 @@ DOCUMENT_EXTENSIONS = {".pdf", ".txt", ".docx", ".doc"}
 
 # =============================================================================
 # API Keys - Read from files
-OPENAI_API_KEY_FILE = r"C:\Users\dafl\Desktop\API keys\chatgpt_apikey.txt"
+OPENAI_API_KEY_FILE = r"C:\Users\dafl\Desktop\API keys\tore_vkm_openai.txt"
 TAVILY_API_KEY_FILE = r"C:\Users\dafl\Desktop\API keys\Tavily_key.txt"
-
 
 # Load API keys from files
 def load_api_key(file_path: str) -> str:
@@ -114,9 +114,9 @@ os.environ.update({
     "LLM_MAX_TOKENS": "4096",
     "DEEP_RESEARCH_BREADTH": "3",
     "DEEP_RESEARCH_DEPTH": "2",
-    "MAX_SEARCH_RESULTS_PER_QUERY": "10",
+    "MAX_SEARCH_RESULTS_PER_QUERY": "7",
     "TOTAL_WORDS": "400",
-    "MAX_ITERATIONS": "8",
+    "MAX_ITERATIONS": "5",
 })
 
 # Excluded domains
@@ -140,7 +140,6 @@ OPENAI_PRICING = {
 
 # Tavily pricing (per search) - approximate
 TAVILY_PRICE_PER_SEARCH = 0.01  # Approximate cost per search
-
 
 # =============================================================================
 # COST TRACKING DATA STRUCTURES
@@ -529,6 +528,14 @@ def clean_markdown_formatting(text: str) -> str:
 # LOCAL DOCUMENT FUNCTIONS
 # =============================================================================
 
+def force_rmtree(path: Path) -> None:
+    """Remove a directory tree, forcing read-only files to be deleted (Windows-safe)."""
+    def _on_error(func, target, _):
+        os.chmod(target, stat.S_IWRITE)
+        func(target)
+    shutil.rmtree(path, onerror=_on_error)
+
+
 def find_species_docs_folder(gbif_key: str, scientific_name: str) -> Optional[Path]:
     """Find the species folder matching {GBIF_KEY}_{Scientific_Name} pattern.
 
@@ -587,7 +594,7 @@ def copy_species_docs_to_temp(gbif_key: str, scientific_name: str) -> bool:
 
     # Clear existing temp folder
     if temp_path.exists():
-        shutil.rmtree(temp_path)
+        force_rmtree(temp_path)
     temp_path.mkdir(parents=True, exist_ok=True)
 
     # Find species folder
@@ -626,7 +633,7 @@ def cleanup_temp_docs():
     temp_path = script_dir / TEMP_DOCS_FOLDER
     if temp_path.exists():
         try:
-            shutil.rmtree(temp_path)
+            force_rmtree(temp_path)
             print("🧹 Cleaned up temp documents folder")
         except Exception as e:
             print(f"⚠️  Failed to cleanup temp folder: {e}")
@@ -1290,10 +1297,35 @@ async def research_justification(species_name: str, question_code: str, question
         report_source=report_source,
     )
 
+    max_retries = 5
+    base_wait = 5  # seconds
+
     try:
         start_time = time.time()
-        await researcher.conduct_research()
-        report = await researcher.write_report()
+        for attempt in range(max_retries):
+            try:
+                await researcher.conduct_research()
+                report = await researcher.write_report()
+                break
+            except Exception as rate_exc:
+                err_str = str(rate_exc)
+                is_rate_limit = "429" in err_str or "rate_limit_exceeded" in err_str
+                if is_rate_limit and attempt < max_retries - 1:
+                    # Try to parse suggested wait time from error message
+                    wait_match = re.search(r'try again in (\d+(?:\.\d+)?)s', err_str)
+                    wait_time = float(wait_match.group(1)) if wait_match else base_wait * (2 ** attempt)
+                    wait_time = max(wait_time + 2, 5)  # at least 5s buffer
+                    print(f"⏳ Rate limit hit (attempt {attempt + 1}/{max_retries}). Waiting {wait_time:.0f}s...")
+                    await asyncio.sleep(wait_time)
+                    # Re-create researcher for retry
+                    researcher = GPTResearcher(
+                        query=query,
+                        report_type="research_report",
+                        tone="formal",
+                        report_source=report_source,
+                    )
+                else:
+                    raise
         end_time = time.time()
 
         # Remove excluded domain references
@@ -1319,10 +1351,9 @@ async def research_justification(species_name: str, question_code: str, question
             metrics.output_tokens = len(report) // 4
             metrics.total_tokens = metrics.input_tokens + metrics.output_tokens
 
-            # Estimate search count from config
-            max_iterations = int(os.environ.get("MAX_ITERATIONS", "8"))
-            searches_per_iter = int(os.environ.get("MAX_SEARCH_RESULTS_PER_QUERY", "10"))
-            # GPT Researcher typically does multiple searches per iteration
+            # Estimate search count from config (GPT Researcher typically does
+            # multiple searches per iteration)
+            max_iterations = int(os.environ.get("MAX_ITERATIONS", "5"))
             metrics.search_count = max_iterations * 2  # Conservative estimate
 
             # Try to get actual costs from researcher if available
