@@ -770,6 +770,7 @@ class ValuePopulator:
             print("=" * 60 + "\n")
 
             for i, ans in enumerate(answers, 1):
+                duration = 0.0
                 q_data = self.get_question_options(ans['idQuestion'], "questions")
                 if not q_data:
                     continue
@@ -814,7 +815,8 @@ class ValuePopulator:
                             cost_tracker.record_question(QuestionMetrics(
                                 species_name=species_name, question_code=q_code,
                                 input_tokens=in_tok, output_tokens=out_tok,
-                                total_tokens=in_tok + out_tok, status="error"
+                                total_tokens=in_tok + out_tok, status="error",
+                                duration_seconds=duration
                             ))
                         continue
 
@@ -828,7 +830,10 @@ class ValuePopulator:
                         final_values = gpt_values
 
                 # Post-GPT sibling clamp
-                clamp = check_sibling_clamp(q_code, final_values, scored_context, options_map)
+                if final_values and not all(v is None for v in final_values.values()):
+                    clamp = check_sibling_clamp(q_code, final_values, scored_context, options_map)
+                else:
+                    clamp = None
                 if clamp is not None:
                     final_values = {
                         "min": clamp["min"],
@@ -853,7 +858,8 @@ class ValuePopulator:
                     cost_tracker.record_question(QuestionMetrics(
                         species_name=species_name, question_code=q_code,
                         input_tokens=in_tok, output_tokens=out_tok,
-                        total_tokens=in_tok + out_tok, status=status
+                        total_tokens=in_tok + out_tok, status=status,
+                        duration_seconds=duration
                     ))
 
                 # JSONL audit
@@ -879,8 +885,7 @@ class ValuePopulator:
 
             # Pre-enrich pathway answers with 'code' for topological sort
             for pa in pathway_answers:
-                if 'code' not in pa:
-                    pa['code'] = pa.get('question_code', f"UNKNOWN_{pa['idPathQuestion']}")
+                pa['code'] = pa.get('question_code', f"UNKNOWN_{pa['idPathQuestion']}")
 
             # Group by idEntryPathway; DAG state is fresh per pathway instance
             pathway_groups: Dict[int, List[Dict]] = {}
@@ -898,6 +903,7 @@ class ValuePopulator:
                 pathway_options_map: Dict[str, List[Dict]] = {}
 
                 for answer in sorted_group:
+                    duration = 0.0
                     global_pathway_counter += 1
                     i = global_pathway_counter
 
@@ -933,7 +939,7 @@ class ValuePopulator:
                                 cost_tracker.record_question(QuestionMetrics(
                                     species_name=species_name, question_code=q_code,
                                     input_tokens=0, output_tokens=0, total_tokens=0,
-                                    status="success"
+                                    status="success", duration_seconds=duration
                                 ))
                             continue
 
@@ -973,7 +979,8 @@ class ValuePopulator:
                                 cost_tracker.record_question(QuestionMetrics(
                                     species_name=species_name, question_code=q_code,
                                     input_tokens=in_tok, output_tokens=out_tok,
-                                    total_tokens=in_tok + out_tok, status="error"
+                                    total_tokens=in_tok + out_tok, status="error",
+                                    duration_seconds=duration
                                 ))
                             continue
 
@@ -987,9 +994,12 @@ class ValuePopulator:
                             final_values = gpt_values
 
                     # Post-GPT sibling clamp
-                    clamp = check_sibling_clamp(
-                        q_code, final_values, scored_context_pathway, pathway_options_map
-                    )
+                    if final_values and not all(v is None for v in final_values.values()):
+                        clamp = check_sibling_clamp(
+                            q_code, final_values, scored_context_pathway, pathway_options_map
+                        )
+                    else:
+                        clamp = None
                     if clamp is not None:
                         final_values = {
                             "min": clamp["min"],
@@ -1016,7 +1026,8 @@ class ValuePopulator:
                         cost_tracker.record_question(QuestionMetrics(
                             species_name=species_name, question_code=q_code,
                             input_tokens=in_tok, output_tokens=out_tok,
-                            total_tokens=in_tok + out_tok, status=status
+                            total_tokens=in_tok + out_tok, status=status,
+                            duration_seconds=duration
                         ))
 
                     # JSONL audit
