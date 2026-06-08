@@ -751,96 +751,289 @@ class ValuePopulator:
                     cost_tracker.end_species()
                 return 0
 
+            # ── DAG init ─────────────────────────────────────────────────────
+            scored_context: Dict[str, Dict[str, str]] = self.load_scored_context(assessment_id)
+            options_map: Dict[str, List[Dict]] = {}
+            jsonl_path = str(
+                Path(self.db_path).parent / f"dag_corrections_{Path(self.db_path).stem}.jsonl"
+            )
+
+            # Pre-enrich regular answers with 'code' for topological sort
+            for _a in answers:
+                _qd = self.get_question_options(_a['idQuestion'], "questions")
+                _a['code'] = _qd['code'] if _qd else f"UNKNOWN_{_a['idQuestion']}"
+            answers = topological_sort_answers(answers, is_pathway=False)
+
             # Process regular answers
+            print("=" * 60)
+            print("Processing Regular Answers")
+            print("=" * 60 + "\n")
+
             for i, ans in enumerate(answers, 1):
                 q_data = self.get_question_options(ans['idQuestion'], "questions")
                 if not q_data:
                     continue
 
-                q_code = q_data['code']  # Use proper question code (ENT1, EST4, etc.)
+                q_code = ans['code']
+                options = q_data['options']
+                question_type = q_data['type']
+                options_map[q_code] = options
+
                 print(f"[{i}/{len(answers)}] {q_code}...", end=" ")
 
-                start = datetime.now()
-                values, in_tok, out_tok = await self.determine_values_with_gpt(
-                    species_name, q_data['question'], q_data['options'],
-                    ans['justification'], q_data['type'], question_code=q_code
+                # Tier 1: zero-force check
+                forcing = check_zero_forcing(
+                    q_code, scored_context, options, question_type, is_pathway=False
                 )
-                duration = (datetime.now() - start).total_seconds()
+                forced_params = {f["parameter"] for f in forcing["flags"]} if forcing else set()
+                all_forced = forced_params == {"min", "likely", "max"}
 
-                metrics = QuestionMetrics(
-                    species_name=species_name, question_code=q_code,
-                    start_time=start, end_time=datetime.now(),
-                    duration_seconds=duration, input_tokens=in_tok, output_tokens=out_tok,
-                    total_tokens=in_tok + out_tok
-                )
+                final_values: Optional[Dict] = None
+                in_tok = out_tok = 0
 
-                if values and not all(v is None for v in [values['min'], values['likely'], values['max']]):
-                    self.update_answer_values(ans['idAnswer'], values['min'], values['likely'], values['max'])
-                    print(f"✅ {values['min']}/{values['likely']}/{values['max']}")
-                    metrics.status = "success"
+                if all_forced:
+                    final_values = {
+                        "min": forcing["min"],
+                        "likely": forcing["likely"],
+                        "max": forcing["max"],
+                    }
+                    print(f"⚡ zero-forced")
                 else:
-                    print("⏭️ skipped")
-                    metrics.status = "skipped"
+                    prior_ctx = build_scored_prior_context(q_code, scored_context, options_map)
+                    start = datetime.now()
+                    gpt_values, in_tok, out_tok = await self.determine_values_with_gpt(
+                        species_name, q_data['question'], options,
+                        ans['justification'], question_type, question_code=q_code,
+                        prior_context=prior_ctx,
+                    )
+                    duration = (datetime.now() - start).total_seconds()
 
-                if track_costs and cost_tracker:
-                    cost_tracker.record_question(metrics)
-
-            # Process pathway answers
-            for i, ans in enumerate(pathway_answers, 1):
-                q_data = self.get_question_options(ans['idPathQuestion'], "pathwayQuestions")
-                if not q_data:
-                    continue
-
-                q_code = q_data['code']  # Use proper question code (ENT2A, ENT2B, etc.)
-                pathway_name = ans.get('pathway_name', '')
-                print(f"[{i}/{len(pathway_answers)}] {q_code} ({pathway_name})...", end=" ")
-
-                # Special handling for "Intentional introduction" pathway
-                # ENT2A, ENT2B, ENT3 should all be set to MAXIMUM values
-                is_intentional = pathway_name.lower() == "intentional introduction"
-                is_entry_question = q_code in ["ENT2A", "ENT2B", "ENT3"]
-
-                if is_intentional and is_entry_question:
-                    # Get maximum option and set all values to max
-                    max_opt = self.get_max_option_for_question(ans['idPathQuestion'], "pathwayQuestions")
-                    if max_opt:
-                        self.update_pathway_answer_values(ans['idPathAnswer'], max_opt, max_opt, max_opt)
-                        print(f"✅ {max_opt}/{max_opt}/{max_opt} (INTENTIONAL: auto-max)")
-
-                        metrics = QuestionMetrics(
-                            species_name=species_name, question_code=q_code,
-                            start_time=datetime.now(), end_time=datetime.now(),
-                            duration_seconds=0, input_tokens=0, output_tokens=0, total_tokens=0,
-                            status="success"
-                        )
+                    if gpt_values is None:
+                        print("⏭️ error")
                         if track_costs and cost_tracker:
-                            cost_tracker.record_question(metrics)
+                            cost_tracker.record_question(QuestionMetrics(
+                                species_name=species_name, question_code=q_code,
+                                input_tokens=in_tok, output_tokens=out_tok,
+                                total_tokens=in_tok + out_tok, status="error"
+                            ))
                         continue
 
-                start = datetime.now()
-                values, in_tok, out_tok = await self.determine_values_with_gpt(
-                    species_name, q_data['question'], q_data['options'],
-                    ans['justification'], q_data['type'], question_code=q_code
-                )
-                duration = (datetime.now() - start).total_seconds()
+                    if forcing is not None:
+                        final_values = dict(gpt_values)
+                        for flag in forcing["flags"]:
+                            flag["original_option"] = gpt_values.get(flag["parameter"])
+                            final_values[flag["parameter"]] = forcing[flag["parameter"]]
+                        print(f"⚡ partial zero-forcing")
+                    else:
+                        final_values = gpt_values
 
-                metrics = QuestionMetrics(
-                    species_name=species_name, question_code=q_code,
-                    start_time=start, end_time=datetime.now(),
-                    duration_seconds=duration, input_tokens=in_tok, output_tokens=out_tok,
-                    total_tokens=in_tok + out_tok
-                )
+                # Post-GPT sibling clamp
+                clamp = check_sibling_clamp(q_code, final_values, scored_context, options_map)
+                if clamp is not None:
+                    final_values = {
+                        "min": clamp["min"],
+                        "likely": clamp["likely"],
+                        "max": clamp["max"],
+                    }
 
-                if values and not all(v is None for v in [values['min'], values['likely'], values['max']]):
-                    self.update_pathway_answer_values(ans['idPathAnswer'], values['min'], values['likely'], values['max'])
-                    print(f"✅ {values['min']}/{values['likely']}/{values['max']}")
-                    metrics.status = "success"
+                # Write and update scored_context
+                status = "skipped"
+                if final_values and not all(v is None for v in final_values.values()):
+                    self.update_answer_values(
+                        ans['idAnswer'],
+                        final_values['min'], final_values['likely'], final_values['max']
+                    )
+                    scored_context[q_code] = {k: final_values[k] for k in ("min", "likely", "max")}
+                    status = "success"
+                    print(f"✅ {final_values['min']}/{final_values['likely']}/{final_values['max']}")
                 else:
-                    print("⏭️ skipped")
-                    metrics.status = "skipped"
+                    print("⏭️ skipped (NO/zero)")
 
                 if track_costs and cost_tracker:
-                    cost_tracker.record_question(metrics)
+                    cost_tracker.record_question(QuestionMetrics(
+                        species_name=species_name, question_code=q_code,
+                        input_tokens=in_tok, output_tokens=out_tok,
+                        total_tokens=in_tok + out_tok, status=status
+                    ))
+
+                # JSONL audit
+                timestamp = datetime.now().isoformat(timespec="seconds")
+                all_flags = list(forcing["flags"] if forcing else [])
+                if clamp:
+                    all_flags.extend(clamp["flags"])
+                for flag in all_flags:
+                    append_dag_correction(jsonl_path, {
+                        "assessment_id": assessment_id,
+                        "question_code": q_code,
+                        "parameter": flag["parameter"],
+                        "rule_fired": flag["rule_fired"],
+                        "original_option": flag.get("original_option"),
+                        "forced_option": flag.get("forced_option"),
+                        "timestamp": timestamp,
+                    })
+
+            # Process pathway answers
+            print("=" * 60)
+            print("Processing Pathway Answers")
+            print("=" * 60 + "\n")
+
+            # Pre-enrich pathway answers with 'code' for topological sort
+            for pa in pathway_answers:
+                if 'code' not in pa:
+                    pa['code'] = pa.get('question_code', f"UNKNOWN_{pa['idPathQuestion']}")
+
+            # Group by idEntryPathway; DAG state is fresh per pathway instance
+            pathway_groups: Dict[int, List[Dict]] = {}
+            for pa in pathway_answers:
+                pathway_groups.setdefault(pa['idEntryPathway'], []).append(pa)
+
+            total_pathway_answers = len(pathway_answers)
+            global_pathway_counter = 0
+
+            for id_entry_pathway, group in pathway_groups.items():
+                sorted_group = topological_sort_answers(group, is_pathway=True)
+                scored_context_pathway: Dict[str, Dict[str, str]] = self.load_scored_context_pathway(
+                    id_entry_pathway
+                )
+                pathway_options_map: Dict[str, List[Dict]] = {}
+
+                for answer in sorted_group:
+                    global_pathway_counter += 1
+                    i = global_pathway_counter
+
+                    id_path_answer = answer['idPathAnswer']
+                    id_path_question = answer['idPathQuestion']
+                    q_code = answer['code']
+                    pathway_name = answer.get('pathway_name', '')
+                    justification = answer['justification']
+
+                    q_data = self.get_question_options(id_path_question, "pathwayQuestions")
+                    if not q_data:
+                        print(f"[{i}/{total_pathway_answers}] ⚠️ pathway question {id_path_question} not found")
+                        continue
+
+                    options = q_data['options']
+                    question_type = q_data['type']
+                    pathway_options_map[q_code] = options
+
+                    print(f"[{i}/{total_pathway_answers}] {q_code} ({pathway_name})...", end=" ")
+
+                    # Intentional introduction auto-max (BioPRIO-specific)
+                    is_intentional = pathway_name.lower() == "intentional introduction"
+                    is_entry_question = q_code in ["ENT2A", "ENT2B", "ENT3"]
+                    if is_intentional and is_entry_question:
+                        max_opt = self.get_max_option_for_question(id_path_question, "pathwayQuestions")
+                        if max_opt:
+                            self.update_pathway_answer_values(id_path_answer, max_opt, max_opt, max_opt)
+                            scored_context_pathway[q_code] = {
+                                "min": max_opt, "likely": max_opt, "max": max_opt
+                            }
+                            print(f"✅ {max_opt}/{max_opt}/{max_opt} (INTENTIONAL: auto-max)")
+                            if track_costs and cost_tracker:
+                                cost_tracker.record_question(QuestionMetrics(
+                                    species_name=species_name, question_code=q_code,
+                                    input_tokens=0, output_tokens=0, total_tokens=0,
+                                    status="success"
+                                ))
+                            continue
+
+                    # Tier 1: zero-force check (pathway-scoped)
+                    forcing = check_zero_forcing(
+                        q_code, scored_context_pathway, options, question_type, is_pathway=True
+                    )
+                    forced_params = {f["parameter"] for f in forcing["flags"]} if forcing else set()
+                    all_forced = forced_params == {"min", "likely", "max"}
+
+                    final_values = None
+                    in_tok = out_tok = 0
+
+                    if all_forced:
+                        final_values = {
+                            "min": forcing["min"],
+                            "likely": forcing["likely"],
+                            "max": forcing["max"],
+                        }
+                        print(f"⚡ zero-forced")
+                    else:
+                        prior_ctx = build_scored_prior_context(
+                            q_code, scored_context_pathway, pathway_options_map,
+                            is_pathway=True,
+                        )
+                        start = datetime.now()
+                        gpt_values, in_tok, out_tok = await self.determine_values_with_gpt(
+                            species_name, q_data['question'], options,
+                            justification, question_type, question_code=q_code,
+                            prior_context=prior_ctx,
+                        )
+                        duration = (datetime.now() - start).total_seconds()
+
+                        if gpt_values is None:
+                            print("⏭️ error")
+                            if track_costs and cost_tracker:
+                                cost_tracker.record_question(QuestionMetrics(
+                                    species_name=species_name, question_code=q_code,
+                                    input_tokens=in_tok, output_tokens=out_tok,
+                                    total_tokens=in_tok + out_tok, status="error"
+                                ))
+                            continue
+
+                        if forcing is not None:
+                            final_values = dict(gpt_values)
+                            for flag in forcing["flags"]:
+                                flag["original_option"] = gpt_values.get(flag["parameter"])
+                                final_values[flag["parameter"]] = forcing[flag["parameter"]]
+                            print(f"⚡ partial zero-forcing")
+                        else:
+                            final_values = gpt_values
+
+                    # Post-GPT sibling clamp
+                    clamp = check_sibling_clamp(
+                        q_code, final_values, scored_context_pathway, pathway_options_map
+                    )
+                    if clamp is not None:
+                        final_values = {
+                            "min": clamp["min"],
+                            "likely": clamp["likely"],
+                            "max": clamp["max"],
+                        }
+
+                    # Write and update per-pathway state
+                    status = "skipped"
+                    if final_values and not all(v is None for v in final_values.values()):
+                        self.update_pathway_answer_values(
+                            id_path_answer,
+                            final_values['min'], final_values['likely'], final_values['max']
+                        )
+                        scored_context_pathway[q_code] = {
+                            k: final_values[k] for k in ("min", "likely", "max")
+                        }
+                        status = "success"
+                        print(f"✅ {final_values['min']}/{final_values['likely']}/{final_values['max']}")
+                    else:
+                        print("⏭️ skipped (NO/zero)")
+
+                    if track_costs and cost_tracker:
+                        cost_tracker.record_question(QuestionMetrics(
+                            species_name=species_name, question_code=q_code,
+                            input_tokens=in_tok, output_tokens=out_tok,
+                            total_tokens=in_tok + out_tok, status=status
+                        ))
+
+                    # JSONL audit
+                    timestamp = datetime.now().isoformat(timespec="seconds")
+                    all_flags = list(forcing["flags"] if forcing else [])
+                    if clamp:
+                        all_flags.extend(clamp["flags"])
+                    for flag in all_flags:
+                        append_dag_correction(jsonl_path, {
+                            "assessment_id": assessment_id,
+                            "question_code": q_code,
+                            "parameter": flag["parameter"],
+                            "rule_fired": flag["rule_fired"],
+                            "original_option": flag.get("original_option"),
+                            "forced_option": flag.get("forced_option"),
+                            "timestamp": timestamp,
+                        })
 
             if track_costs and cost_tracker:
                 cost_tracker.end_species()
