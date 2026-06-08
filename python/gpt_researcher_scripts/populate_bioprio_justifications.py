@@ -565,20 +565,19 @@ def get_regular_prior_answers(db_path: str, assessment_id: int,
     if not dep_codes:
         return {}
 
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT q."group" || q.number ||
-               CASE WHEN q.subgroup IS NOT NULL THEN '.' || q.subgroup ELSE '' END AS code_raw,
-               a.justification
-        FROM answers a
-        JOIN questions q ON a.idQuestion = q.idQuestion
-        WHERE a.idAssessment = ?
-          AND a.justification IS NOT NULL
-          AND a.justification != ''
-    """, (assessment_id,))
-    rows = cursor.fetchall()
-    conn.close()
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT q."group" || q.number ||
+                   CASE WHEN q.subgroup IS NOT NULL THEN '.' || q.subgroup ELSE '' END AS code_raw,
+                   a.justification
+            FROM answers a
+            JOIN questions q ON a.idQuestion = q.idQuestion
+            WHERE a.idAssessment = ?
+              AND a.justification IS NOT NULL
+              AND a.justification != ''
+        """, (assessment_id,))
+        rows = cursor.fetchall()
 
     dep_set = set(dep_codes)
     result = {}
@@ -599,19 +598,18 @@ def get_pathway_prior_answers(db_path: str, id_entry_pathway: int,
     if not dep_codes:
         return {}
 
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT pq."group" || pq.number AS code_raw,
-               pa.justification
-        FROM pathwayAnswers pa
-        JOIN pathwayQuestions pq ON pa.idPathQuestion = pq.idPathQuestion
-        WHERE pa.idEntryPathway = ?
-          AND pa.justification IS NOT NULL
-          AND pa.justification != ''
-    """, (id_entry_pathway,))
-    rows = cursor.fetchall()
-    conn.close()
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT pq."group" || pq.number AS code_raw,
+                   pa.justification
+            FROM pathwayAnswers pa
+            JOIN pathwayQuestions pq ON pa.idPathQuestion = pq.idPathQuestion
+            WHERE pa.idEntryPathway = ?
+              AND pa.justification IS NOT NULL
+              AND pa.justification != ''
+        """, (id_entry_pathway,))
+        rows = cursor.fetchall()
 
     dep_set = set(dep_codes)
     result = {}
@@ -699,6 +697,11 @@ def build_prior_context(db_path: str, assessment_id: int, question_code: str,
         prior = {}
         prior.update(get_regular_prior_answers(db_path, assessment_id, regular_deps))
         prior.update(get_pathway_prior_answers(db_path, id_entry_pathway, pathway_deps))
+    elif is_pathway_q:
+        # id_entry_pathway not provided for a pathway question — pathway deps silently dropped
+        print(f"⚠️  build_prior_context: {code} is a pathway question but id_entry_pathway=None; pathway deps skipped")
+        deps = QUESTION_DEPENDENCIES.get(code, [])
+        prior = get_regular_prior_answers(db_path, assessment_id, deps)
     else:
         deps = QUESTION_DEPENDENCIES.get(code, [])
         prior = get_regular_prior_answers(db_path, assessment_id, deps)
