@@ -17,6 +17,7 @@ Usage:
     python populate_bioprio_values.py --question ENT1
 """
 
+import sys
 import sqlite3
 import json
 import os
@@ -29,7 +30,17 @@ from datetime import datetime
 from openai import AsyncOpenAI
 
 # Import instructions loader for Rmd-based value selection prompts
-from bioprio_instructions_loader import build_value_selection_prompt
+from bioprio_instructions_loader import build_value_selection_prompt, get_question_instructions
+
+# DAG enforcement layer (modules live in parent python/ directory)
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from dag_values import (
+    topological_sort_answers,
+    check_zero_forcing,
+    check_sibling_clamp,
+    build_scored_prior_context,
+    append_dag_correction,
+)
 
 # Check for openpyxl availability
 try:
@@ -46,7 +57,7 @@ except ImportError:
 SKIP_EXISTING_VALUES = False
 
 # API Keys
-OPENAI_API_KEY_FILE = r"C:\Users\dafl\Desktop\API keys\chatgpt_apikey.txt"
+OPENAI_API_KEY_FILE = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\API keys\tore_vkm_openai.txt"
 
 def load_api_key(file_path: str) -> str:
     try:
@@ -59,7 +70,7 @@ def load_api_key(file_path: str) -> str:
 os.environ['OPENAI_API_KEY'] = load_api_key(OPENAI_API_KEY_FILE)
 
 # Database Path
-INPUT_DATABASE = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\FinnPrio\BioiPRIO_development\databases\ant_test\clean_ants_ai_enhanced_26_02_2026.db"
+INPUT_DATABASE = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\FinnPrio\BioPRIO_development\databases\ants_ai\ants_Minimal_ai_ai_enhanced_28_04_2026.db"
 
 # Filter by species identifiers (empty list = process all species)
 # Supports: EPPO codes, scientific names, or GBIF taxon keys
@@ -273,7 +284,6 @@ cost_tracker: Optional[CostTracker] = None
 
 client = AsyncOpenAI(api_key=os.environ.get('OPENAI_API_KEY', ''))
 
-
 class ValuePopulator:
     def __init__(self, db_path: str, assessment_id: Optional[int] = None):
         self.db_path = db_path
@@ -428,7 +438,7 @@ class ValuePopulator:
         """
         try:
             response = await client.chat.completions.create(
-                model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
+                model=os.getenv("LLM_MODEL", "gpt-4o"),
                 messages=[
                     {"role": "system", "content": "You are an expert in invasive species risk assessment. You analyze scientific evidence and determine appropriate risk estimates. Return only JSON."},
                     {"role": "user", "content": prompt}
