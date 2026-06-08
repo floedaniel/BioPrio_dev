@@ -140,8 +140,12 @@ class RmdInstructionsParser:
             if subnum:
                 # Sub-question style: ## IMP4.1: text — add to parent's sub_questions
                 sub_code = f"{code}.{subnum}"
-                sub_text = self._extract_subq_text_from_options(content, sub_code) or text
-                sub_description = self._extract_additional_notes(content).strip() or None
+                extracted = self._extract_subq_text_from_options(content, sub_code)
+                if extracted:
+                    sub_text, inline_desc = extracted
+                else:
+                    sub_text, inline_desc = text, None
+                sub_description = inline_desc or self._extract_additional_notes(content).strip() or None
                 sub_guidance = self._extract_guidance(content)
 
                 if code not in self.questions:
@@ -169,15 +173,31 @@ class RmdInstructionsParser:
             else:
                 self.questions[code] = self._parse_question(code, text, content)
 
-    def _extract_subq_text_from_options(self, content: str, sub_code: str) -> Optional[str]:
-        """Extract sub-question text from ### Options bold header matching sub_code"""
+    def _extract_subq_text_from_options(
+        self, content: str, sub_code: str
+    ) -> Optional[Tuple[str, Optional[str]]]:
+        """Extract sub-question text and any inline description from ### Options.
+
+        Handles two Rmd authoring styles for the bold header:
+            **IMP4.1. Text on its own line**
+            **IMP2.2. Text** Inline description on the same line.
+
+        Returns (text, description_or_None) or None when no matching header is found.
+        """
         options_match = re.search(r'^### Options\s*\n(.*?)(?=^###|\Z)', content, re.MULTILINE | re.DOTALL)
         if not options_match:
             return None
+        # The bold may be followed by inline description text on the same line —
+        # do NOT anchor with $.
+        pattern = re.compile(
+            r'^\*\*(?P<code>IMP\d+\.\d+)\.\s*(?P<text>.+?)\*\*(?P<inline>.*)$'
+        )
         for line in options_match.group(1).split('\n'):
-            m = re.match(r'^\*\*(?P<code>IMP\d+\.\d+)\.\s*(?P<text>.+?)\*\*$', line.strip())
+            m = pattern.match(line.strip())
             if m and m.group('code') == sub_code:
-                return m.group('text').strip()
+                text = m.group('text').strip()
+                inline = m.group('inline').strip() or None
+                return text, inline
         return None
 
     def _parse_question(self, code: str, text: str, content: str) -> Dict:

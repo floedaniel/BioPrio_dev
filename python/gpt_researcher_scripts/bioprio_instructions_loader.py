@@ -93,11 +93,13 @@ def get_question_instructions(question_code: str) -> Dict:
     """
     instructions = load_instructions()
 
+    # Normalise: callers historically passed codes like "IMP2.1." with a trailing
+    # dot when the database subgroup field was empty/null. Strip it once here so
+    # both the parent lookup and the sub-question equality check work uniformly.
+    question_code = question_code.rstrip('.')
+
     # Handle sub-questions (IMP2.1 -> IMP2)
     base_code = question_code.split('.')[0]
-
-    # Also handle codes with trailing dot (ENT1. -> ENT1)
-    base_code = base_code.rstrip('.')
 
     question = instructions.get('questions', {}).get(base_code)
     if not question:

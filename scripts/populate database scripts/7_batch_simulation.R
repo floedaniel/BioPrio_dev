@@ -31,13 +31,16 @@ source("R/internal functions.R")  # For get_points_as_table()
 #DB_PATH <- "python/outputs/old_test_ai_enhanced_03_02_2026.db"
 #DB_PATH <- "databases/finnprio_assessments_database_2025/FinnPrio_fg9_batch_1_2025.db"
 
-DB_PATH <- "./python/outputs/selam_test_species_ai_enhanced_04_02_2026_2.db"
+DB_PATH <- "C:/Users/dafl/OneDrive - Folkehelseinstituttet/FinnPrio/BioPRIO_development/databases/ants_ai/ants_Minimal_ai_ai_enhanced_28_04_2026.db"
 
 # Simulation Settings
 ITERATIONS <- 50000  # Number of Monte Carlo iterations (default: 50000)
-LAMBDA <- 5          # PERT distribution shape parameter (default: 1)
-WEIGHT1 <- 0.5       # Weight for economic impact (IMP1 + IMP2)
-WEIGHT2 <- 0.5       # Weight for environmental/social impact (IMP3 + IMP4)
+LAMBDA <- 4          # PERT distribution shape parameter (default: 4)
+   
+# Strong environmental emphasis: 
+# default is 0.5
+WEIGHT1 <- 0.25  # Weight for economic impact (IMP1 + IMP2)
+WEIGHT2 <- 0.75 # Weight for environmental/social impact (IMP3 + IMP4)
 
 # Processing Options
 SKIP_EXISTING <- TRUE        # Skip assessments that already have simulations

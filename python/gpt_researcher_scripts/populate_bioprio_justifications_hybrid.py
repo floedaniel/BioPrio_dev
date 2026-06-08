@@ -59,10 +59,10 @@ except ImportError:
 SKIP_EXISTING_JUSTIFICATION = True
 
 # DATABASE PATH - UPDATE THIS IF YOU ADDED PATHWAYS
-DEFAULT_DB_PATH = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\FinnPrio\BioiPRIO_development\databases\ants\ants_High.db"
+#DEFAULT_DB_PATH = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\FinnPrio\BioiPRIO_development\databases\ants\ants_High_1.db"
 
 # Alternative: path to update already existing AI-enhanced database
-# DEFAULT_DB_PATH = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\FinnPrio\BioiPRIO_development\databases\ant_test\clean_ants_ai_enhanced_19_02_2026.db"
+DEFAULT_DB_PATH = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\FinnPrio\BioiPRIO_development\databases\ants_ai\ants_High_1_ai_enhanced_09_04_2026.db"
 
 # Output directory (new copy will be created here)
 DEFAULT_OUTPUT_DIR = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\FinnPrio\BioiPRIO_development\databases\ants_ai"
@@ -108,20 +108,47 @@ os.environ['OPENAI_API_KEY'] = load_api_key(OPENAI_API_KEY_FILE)
 os.environ['TAVILY_API_KEY'] = load_api_key(TAVILY_API_KEY_FILE)
 # =============================================================================
 
-# GPT Researcher Configuration
+# GPT Researcher Configuration — max quality, research_report path
+# Uses report_type="research_report", which enforces rigorous inline citations
+# and a full reference list natively. TOTAL_WORDS and REPORT_FORMAT are read by
+# the research_report prompt builder; tone=Tone.Formal is honored by it.
 os.environ.update({
     "TEMPERATURE": "0.1",
     # GPT Researcher requires the '<provider>:<model>' format for these vars.
     "FAST_LLM": "openai:gpt-4o-mini",
-    "SMART_LLM": "openai:gpt-4o",
-    "STRATEGIC_LLM": "openai:gpt-4o",
-    "MAX_TOKENS": "8000",
-    "MAX_SEARCH_RESULTS_PER_QUERY": "15",
-    "MAX_URLS_TO_SCRAPE": "20",
-    "TOTAL_WORDS": "1000",
-    "MAX_ITERATIONS": "8",
-    "SIMILARITY_THRESHOLD": "0.38",
-    "REPORT_FORMAT": "apa",
+    "SMART_LLM": "openai:gpt-4.1",          # long-form, strong reasoning
+    "STRATEGIC_LLM": "openai:o4-mini",      # reasoning model for query planning
+    "REASONING_EFFORT": "high",             # applies to o-series STRATEGIC_LLM
+    # Token budgets — gpt_researcher uses these, not MAX_TOKENS
+    "FAST_TOKEN_LIMIT": "4000",
+    "SMART_TOKEN_LIMIT": "8000",
+    "STRATEGIC_TOKEN_LIMIT": "6000",
+    "SUMMARY_TOKEN_LIMIT": "1200",
+    # Research breadth / depth
+    "MAX_SEARCH_RESULTS_PER_QUERY": "20",
+    "MAX_ITERATIONS": "10",
+    "SIMILARITY_THRESHOLD": "0.35",         # keep more context chunks
+    # "CURATE_SOURCES": "true",               # LLM-based source curation pass
+    # Report shape — read by research_report prompt
+    "TOTAL_WORDS": "800",                   # floor; model may write more
+    "REPORT_FORMAT": "apa",                 # citation style for references
+    # Scraper throttling — mitigates upstream 429s
+    "MAX_SCRAPER_WORKERS": "8",
+    "SCRAPER_RATE_LIMIT_DELAY": "0.8",
+    # Retry/timeout config for BOTH the chat LLM client and the embeddings client.
+    # Parsed as JSON by gpt_researcher's Config.convert_env_value() and merged into
+    # cfg.llm_kwargs / cfg.embedding_kwargs BEFORE the OpenAIEmbeddings /
+    # ChatOpenAI clients are instantiated. This gives us the OpenAI SDK's built-in
+    # exponential-backoff retry (per OpenAI rate-limit cookbook) on every LLM and
+    # embedding call — including the embedding calls inside ContextCompressor,
+    # which is where we were hitting text-embedding-3-small TPM 429s.
+    # chunk_size=500 halves each embedding batch's peak token burst (default 1000).
+    "LLM_KWARGS": '{"max_retries": 8, "request_timeout": 120}',
+    "EMBEDDING_KWARGS": '{"max_retries": 8, "request_timeout": 120, "chunk_size": 500}',
+    # --- Disabled / phantom env vars (kept for reference) ---
+    # "MAX_TOKENS": "8000",                 # phantom: gpt_researcher does not read this
+    # "MAX_URLS_TO_SCRAPE": "20",           # phantom: not implemented in gpt_researcher
+    # "MAX_SUBTOPICS": "8",                 # only affects detailed/subtopic reports
 })
 
 # Excluded domains
@@ -472,9 +499,9 @@ cost_tracker: Optional[CostTracker] = None
 # =============================================================================
 
 def clean_markdown_formatting(text: str) -> str:
-    """Remove markdown formatting and clean up AI-generated text."""
+    """Remove Markdown formatting and clean up AI-generated text."""
 
-    # Remove markdown headings
+    # Remove Markdown headings
     text = re.sub(r'^#+\s+.*$', '', text, flags=re.MULTILINE)
 
     # Remove bold/italic
@@ -483,10 +510,12 @@ def clean_markdown_formatting(text: str) -> str:
     text = re.sub(r'__([^_]+)__', r'\1', text)
     text = re.sub(r'_([^_]+)_', r'\1', text)
 
-    # Remove markdown links
-    text = re.sub(r'\[([^]]+)]\([^)]+\)', r'\1', text)
+    # Flatten markdown links but PRESERVE the URL.
+    # Was: r'\1' (URL deleted — this was silently destroying every citation).
+    # Now: "text (url)" so inline APA-style citations and reference list URLs survive.
+    text = re.sub(r'\[([^]]+)]\(([^)]+)\)', r'\1 (\2)', text)
 
-    # Remove markdown tables
+    # Remove Markdown tables
     text = re.sub(r'^\s*\|[^\n]+\|\s*$', '', text, flags=re.MULTILINE)
     text = re.sub(r'^\s*\|[\s\-:|]+\|\s*$', '', text, flags=re.MULTILINE)
 
@@ -512,11 +541,14 @@ def clean_markdown_formatting(text: str) -> str:
     for pattern in separators:
         text = re.sub(pattern, '', text, flags=re.MULTILINE | re.DOTALL)
 
-    # Remove common AI introduction phrases
+    # Remove common AI preamble phrases.
+    # Narrowed from the original `^.*?[Ii]ntroduction.*?$` etc. which would
+    # accidentally delete reference lines whose titles contain these words
+    # (e.g. a cited paper titled "Introduction to insect biology").
     intro_patterns = [
-        r'^.*?[Ii]ntroduction.*?$',
-        r'^.*?[Ss]ummary.*?$',
-        r'^.*?[Oo]verview.*?$',
+        r'^\s*Introduction:?\s*$',
+        r'^\s*Summary:?\s*$',
+        r'^\s*Overview:?\s*$',
         r'^This report.*?$',
     ]
     for pattern in intro_patterns:
@@ -803,7 +835,7 @@ def get_assessment_info(db_path: str, assessment_id: int) -> Optional[Dict]:
             justification = ""
             created_count += 1
 
-        code = f"{grp}{num}.{subgrp}" if subgrp else f"{grp}{num}."
+        code = f"{grp}{num}.{subgrp}" if subgrp else f"{grp}{num}"
         answers.append({
             'idAnswer': id_answer,
             'code': code,
@@ -1172,14 +1204,13 @@ SCOPE LIMITATION:
 - Do NOT extrapolate from related species, congeners, or sister taxa
 - Do NOT assume biology, hosts, or behavior based on similar species
 - If information is limited for this species, acknowledge it clearly
-- "Unknown" or "insufficient data for this species" is a valid answer
 
 RESEARCH REQUIREMENTS:
-- Base on peer-reviewed literature, official risk assessments (VKM, Fera, EPPO, EFSA, CABI, USDA, and others)
+- Base on peer-reviewed literature and/or official risk assessments 
 - Provide specific evidence with citations
 - Consider Norwegian/Nordic context (temperate to boreal climate, cold winters)
 - Acknowledge uncertainty when evidence is limited
-- Keep focused and concise (300-400 words)
+- Target ~800 words of substantive content
 
 INSUFFICIENT INFORMATION:
 - If the provided context contains insufficient information to answer the question, explicitly state: "The provided context contains insufficient information to answer the question."
@@ -1192,15 +1223,12 @@ ASSUMPTIONS:
   * "It is assumed that..."
 - Clearly distinguish between evidence-based statements and assumptions
 
-OUTPUT FORMAT:
-- Write in PLAIN TEXT only - NO markdown (#, ##, **, *, -)
-- DO NOT use tables - they are unreadable in plain text
-- DO NOT include "Introduction" sections
-- Answer the question DIRECTLY
-- Use paragraph format with proper punctuation
-- Citations in parentheses: (Author, Year)
-- Write as continuous text, not lists
-- If multiple items, write in sentence form
+OUTPUT REQUIREMENTS:
+- Answer the question DIRECTLY - do not pad with background or generic framing.
+- Every factual claim MUST carry an inline citation in APA format with a hyperlinked URL,
+  as ([Author Year](url)) placed at the end of the sentence or paragraph it supports.
+- Include a complete reference list at the end of the report with full URLs.
+- Do NOT omit or abbreviate references - they are critical for downstream review.
 
 Provide a clear, evidence-based justification.
 """
@@ -1220,14 +1248,13 @@ SCOPE LIMITATION:
 - Do NOT extrapolate from related species, congeners, or sister taxa
 - Do NOT assume biology, hosts, or behavior based on similar species
 - If information is limited for this species, acknowledge it clearly
-- "Unknown" or "insufficient data for this species" is a valid answer
 
 RESEARCH REQUIREMENTS:
-- Base on peer-reviewed literature, official risk assessments (VKM, Fera, EPPO, EFSA, CABI, USDA, and others)
+- Base on peer-reviewed literature and/or official risk assessments 
 - Provide specific evidence with citations
 - Consider Norwegian/Nordic context (temperate to boreal climate, cold winters)
 - Acknowledge uncertainty when evidence is limited
-- Keep focused and concise (300-400 words)
+- Target ~800 words of substantive content
 
 INSUFFICIENT INFORMATION:
 - If the provided context contains insufficient information to answer the question, explicitly state: "The provided context contains insufficient information to answer the question."
@@ -1242,19 +1269,18 @@ ASSUMPTIONS:
 
 {f'ADDITIONAL GUIDANCE: {question_info}' if question_info else ''}
 
-OUTPUT FORMAT:
-- Write in PLAIN TEXT only - NO markdown (#, ##, **, *, -)
-- DO NOT use tables - they are unreadable in plain text
-- DO NOT include "Introduction" sections
-- Answer the question DIRECTLY
-- Use paragraph format with proper punctuation
-- Citations in parentheses: (Author, Year)
-- Write as continuous text, not lists
-- If multiple items, write in sentence form
+OUTPUT REQUIREMENTS:
+- Answer the question DIRECTLY - do not pad with background or generic framing.
+- Every factual claim MUST carry an inline citation in APA format with a hyperlinked URL,
+  as ([Author Year](url)) placed at the end of the sentence or paragraph it supports.
+- Include a complete reference list at the end of the report with full URLs.
+- Do NOT omit or abbreviate references - they are critical for downstream review.
 
 Provide a clear, evidence-based justification.
 """
 
+    # Note: formal academic register is delivered via tone=Tone.Formal on GPTResearcher.
+    # Inline citations and reference list are enforced by the research_report prompt itself.
     return query
 
 async def research_justification(species_name: str, question_code: str, question_text: str,
@@ -1300,9 +1326,15 @@ async def research_justification(species_name: str, question_code: str, question
     researcher = GPTResearcher(
         query=query,
         report_type="research_report",
-        tone=Tone.Objective,
+        tone=Tone.Formal,
         report_source=report_source,
     )
+    # Enable OpenAI SDK built-in exponential-backoff retry (cookbook-aligned)
+    # for 429/5xx — propagates to every internal LLM call via cfg.llm_kwargs.
+    researcher.cfg.llm_kwargs.update({
+        "max_retries": 8,
+        "request_timeout": 120,
+    })
 
     max_retries = 5
     base_wait = 5  # seconds
@@ -1329,9 +1361,13 @@ async def research_justification(species_name: str, question_code: str, question
                     researcher = GPTResearcher(
                         query=query,
                         report_type="research_report",
-                        tone=Tone.Objective,
+                        tone=Tone.Formal,
                         report_source=report_source,
                     )
+                    researcher.cfg.llm_kwargs.update({
+                        "max_retries": 8,
+                        "request_timeout": 120,
+                    })
                 else:
                     raise
         end_time = time.time()
