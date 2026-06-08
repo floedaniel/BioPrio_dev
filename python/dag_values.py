@@ -59,7 +59,7 @@ PATHWAY_ZERO_FORCING_RULES: Dict[str, Dict] = {
     },
 }
 
-PATHWAY_VALUES_DEPENDENCIES: Dict[str, List[str]] = dict(PATHWAY_DEPENDENCIES)
+PATHWAY_VALUES_DEPENDENCIES: Dict[str, List[str]] = {k: list(v) for k, v in PATHWAY_DEPENDENCIES.items()}
 PATHWAY_VALUES_DEPENDENCIES["ENT3"] = ["ENT2A"]
 # Ordering-only. ENT2A must be scored before ENT3 so Tier 1 zero-forcing
 # can read scored_context_pathway["ENT2A"]. Table 2 non-zero rows are
@@ -176,7 +176,7 @@ def check_zero_forcing(
         if code not in rule["targets"]:
             continue
         upstream = scored_context.get(upstream_code)
-        if not upstream:
+        if upstream is None:
             continue
         for param in ("min", "likely", "max"):
             if upstream.get(param) == rule["zero_option"]:
@@ -255,6 +255,7 @@ def build_scored_prior_context(
     question_code: str,
     scored_context: Dict[str, Dict[str, str]],
     options_map: Dict[str, List[Dict]],
+    is_pathway: bool = False,
 ) -> str:
     """Build a scored-value context string for Tier 2 GPT prompt injection.
 
@@ -262,7 +263,6 @@ def build_scored_prior_context(
     Returns empty string if no dependencies have been scored yet.
     """
     code = _normalize(question_code)
-    is_pathway = code in PATHWAY_VALUES_DEPENDENCIES and code not in QUESTION_DEPENDENCIES
     deps = (
         PATHWAY_VALUES_DEPENDENCIES.get(code, [])
         if is_pathway
@@ -295,5 +295,7 @@ def build_scored_prior_context(
 
 def append_dag_correction(jsonl_path: str, entry: Dict) -> None:
     """Append one JSONL line to the sidecar audit file (append mode, one call per entry)."""
+    from pathlib import Path
+    Path(jsonl_path).parent.mkdir(parents=True, exist_ok=True)
     with open(jsonl_path, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
