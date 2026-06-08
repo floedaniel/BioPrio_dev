@@ -727,8 +727,8 @@ class ValuePopulator:
                 answers = filtered_answers
 
                 # Filter pathway answers - check if filter matches pathway question codes
-                if filter_upper.startswith("ENT") and any(c.isalpha() and c != 'E' and c != 'N' and c != 'T'
-                                                          for c in filter_upper):
+                PATHWAY_QUESTION_CODES = {"ENT2A", "ENT2B", "ENT3", "ENT4"}
+                if filter_upper in PATHWAY_QUESTION_CODES:
                     # Pathway question filter (ENT2A, ENT2B, ENT3, ENT4)
                     filtered_pathway = []
                     for ans in pathway_answers:
