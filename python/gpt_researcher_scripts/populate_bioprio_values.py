@@ -395,35 +395,99 @@ class ValuePopulator:
         row = cursor.fetchone()
         return row['identifier'] if row else ""
 
-    async def determine_values_with_gpt(
-        self,
-        species_name: str,
-        question_text: str,
-        options: List[Dict],
-        justification: str,
-        question_type: str = "minmax",
-        question_code: str = None
+    async def _call_gpt_boolean(
+        self, justification: str, question_code: str, yes_code: str
     ) -> Tuple[Optional[Dict], int, int]:
+        """Ask a simple yes/no question for boolean sub-questions (IMP2.x, IMP4.x).
+
+        Returns ({min: yes_code, likely: yes_code, max: yes_code}, in_tok, out_tok) for YES,
+                ({min: None, likely: None, max: None}, 0, 0) for NO,
+                (None, 0, 0) on error.
         """
-        Use GPT to determine appropriate min/likely/max values based on justification.
+        try:
+            q = get_question_instructions(question_code)
+            question_text = f"{q['code']}: {q['text']}"
+            guidance = q.get('guidance', [])
+        except KeyError:
+            question_text = question_code
+            guidance = []
 
-        Uses Rmd-based instructions via build_value_selection_prompt() for comprehensive
-        prompts with options, guidance, and scoring criteria.
+        guidance_block = (
+            "\nGUIDANCE:\n" + "\n".join(f"- {g}" for g in guidance)
+        ) if guidance else ""
 
-        Args:
-            species_name: Scientific name of the species
-            question_text: The question text (unused, kept for compatibility)
-            options: List of option dicts with 'opt', 'text', 'points'
-            justification: The AI-generated justification to analyze
-            question_type: 'minmax' or 'boolean' (unused, derived from question_code)
-            question_code: Question code (e.g., 'ENT1', 'EST4') - required for Rmd lookup
+        prompt = (
+            f"Does the following justification indicate that this applies to the species?\n\n"
+            f"QUESTION: {question_text}"
+            f"{guidance_block}\n\n"
+            f"JUSTIFICATION:\n{justification}\n\n"
+            f"Answer YES if the justification supports it, "
+            f"NO if it does not occur or is not mentioned.\n"
+            f'Return ONLY: {{"answer": "YES"}} or {{"answer": "NO"}}'
+        )
 
-        Returns:
-            Tuple of (values_dict, input_tokens, output_tokens) or (None, 0, 0) on error
-        """
-        # Use Rmd-based prompt builder for comprehensive instructions
-        prompt = build_value_selection_prompt(question_code, species_name, justification, options)
-        return await self._call_gpt_for_values(prompt, options)
+        try:
+            response = await client.chat.completions.create(
+                model=os.getenv("LLM_MODEL", "gpt-4o"),
+                messages=[
+                    {"role": "system", "content": "You are an expert in invasive species/arthropod risk assessment."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.0,
+                max_tokens=20
+            )
+            content = response.choices[0].message.content.strip()
+            in_tok = response.usage.prompt_tokens if response.usage else 0
+            out_tok = response.usage.completion_tokens if response.usage else 0
+            if "```" in content:
+                content = content.split("```")[1].split("```")[0].strip()
+                if content.startswith("json"):
+                    content = content[4:].strip()
+            result = json.loads(content)
+            if result.get("answer", "").upper() == "YES":
+                return {"min": yes_code, "likely": yes_code, "max": yes_code}, in_tok, out_tok
+            return {"min": None, "likely": None, "max": None}, in_tok, out_tok
+        except Exception as e:
+            print(f"  ⚠️  Error in boolean evaluation: {type(e).__name__}: {e}")
+            return None, 0, 0
+
+    async def determine_values_with_gpt(
+          self,
+          species_name: str,
+          question_text: str,
+          options: List[Dict],
+          justification: str,
+          question_type: str = "minmax",
+          question_code: str = None,
+          prior_context: str = "",
+      ) -> Tuple[Optional[Dict], int, int]:
+          """
+          Use GPT to determine appropriate min/likely/max values based on justification.
+
+          Uses Rmd-based instructions via build_value_selection_prompt() for comprehensive
+          prompts with options, guidance, and scoring criteria.
+
+          Args:
+              species_name: Scientific name of the species
+              question_text: The question text (unused, kept for compatibility)
+              options: List of option dicts with 'opt', 'text', 'points'
+              justification: The AI-generated justification to analyze
+              question_type: 'minmax' or 'boolean'
+              question_code: Question code (e.g., 'ENT1', 'EST4') - required for Rmd lookup
+              prior_context: Scored upstream values to inject into the prompt (may be empty)
+
+          Returns:
+              Tuple of (values_dict, input_tokens, output_tokens) or (None, 0, 0) on error
+          """
+          # Boolean sub-questions (IMP2.x, IMP4.x): route through yes/no path
+          if question_type == 'boolean' and options:
+              yes_code = options[0]['opt']
+              return await self._call_gpt_boolean(justification, question_code, yes_code)
+
+          prompt = build_value_selection_prompt(question_code, species_name, justification, options)
+          if prior_context:
+              prompt = prior_context + "\n\n" + prompt
+          return await self._call_gpt_for_values(prompt, options)
 
     async def _call_gpt_for_values(
         self,
