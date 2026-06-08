@@ -16,10 +16,12 @@ Key features:
 """
 
 import os
+import sys
 import asyncio
 import sqlite3
 import shutil
 import time
+from collections import deque
 from pathlib import Path
 from gpt_researcher import GPTResearcher
 from gpt_researcher.utils.enum import Tone
@@ -30,6 +32,10 @@ import re
 
 # Import instructions loader (auto-generates JSON from Rmd if needed)
 from bioprio_instructions_loader import build_justification_prompt
+
+# DAG configuration (modules live in parent python/ directory)
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from dag_config import QUESTION_DEPENDENCIES, PATHWAY_DEPENDENCIES, SIBLING_CONSTRAINTS
 
 try:
     import openpyxl
@@ -533,6 +539,183 @@ def clean_markdown_formatting(text: str) -> str:
     text = text.strip()
 
     return text
+
+# =============================================================================
+# DAG CONTEXT FUNCTIONS
+# =============================================================================
+
+def normalize_code(code: str) -> str:
+    """Canonical form: uppercase, no trailing dot."""
+    return code.upper().rstrip('.')
+
+
+def _first_n_sentences(text: str, n: int = 3) -> str:
+    """Return the first n sentences of text."""
+    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+    return ' '.join(sentences[:n])
+
+
+def get_regular_prior_answers(db_path: str, assessment_id: int,
+                               dep_codes: List[str]) -> Dict[str, str]:
+    """Fetch justifications for regular question dependencies.
+
+    Returns {normalized_code: justification_excerpt} for each dep that has a
+    non-empty justification in the DB.
+    """
+    if not dep_codes:
+        return {}
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT q."group" || q.number ||
+               CASE WHEN q.subgroup IS NOT NULL THEN '.' || q.subgroup ELSE '' END AS code_raw,
+               a.justification
+        FROM answers a
+        JOIN questions q ON a.idQuestion = q.idQuestion
+        WHERE a.idAssessment = ?
+          AND a.justification IS NOT NULL
+          AND a.justification != ''
+    """, (assessment_id,))
+    rows = cursor.fetchall()
+    conn.close()
+
+    dep_set = set(dep_codes)
+    result = {}
+    for code_raw, justification in rows:
+        code = normalize_code(code_raw)
+        if code in dep_set:
+            result[code] = justification
+    return result
+
+
+def get_pathway_prior_answers(db_path: str, id_entry_pathway: int,
+                               dep_codes: List[str]) -> Dict[str, str]:
+    """Fetch justifications for same-pathway question dependencies.
+
+    Returns {normalized_code: justification} for each dep that has a non-empty
+    justification for this specific pathway instance.
+    """
+    if not dep_codes:
+        return {}
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT pq."group" || pq.number AS code_raw,
+               pa.justification
+        FROM pathwayAnswers pa
+        JOIN pathwayQuestions pq ON pa.idPathQuestion = pq.idPathQuestion
+        WHERE pa.idEntryPathway = ?
+          AND pa.justification IS NOT NULL
+          AND pa.justification != ''
+    """, (id_entry_pathway,))
+    rows = cursor.fetchall()
+    conn.close()
+
+    dep_set = set(dep_codes)
+    result = {}
+    for code_raw, justification in rows:
+        code = normalize_code(code_raw)
+        if code in dep_set:
+            result[code] = justification
+    return result
+
+
+def format_prior_context(prior_answers: Dict[str, str],
+                          sibling_rule: str = None) -> str:
+    """Format prior answers + optional sibling constraint as an injectable context block.
+
+    Each prior answer is truncated to the first 3 sentences.
+    Returns empty string if there is nothing to inject.
+    """
+    if not prior_answers and not sibling_rule:
+        return ""
+
+    lines = ["PRIOR FINDINGS (established by earlier questions in this assessment):"]
+    for code, justification in prior_answers.items():
+        excerpt = _first_n_sentences(justification, 3)
+        lines.append(f"\n{code}: {excerpt}")
+    lines.append("\nDo not re-derive facts already stated above — build on them.")
+
+    if sibling_rule:
+        lines.append(f"\nCONSTRAINT: {sibling_rule}")
+
+    return '\n'.join(lines)
+
+
+def topological_sort_questions(questions: List[Dict],
+                                dependencies: Dict[str, List[str]]) -> List[Dict]:
+    """Sort questions in topological order using Kahn's algorithm.
+
+    Only dependencies between questions present in `questions` are considered.
+    Questions whose codes are not in `dependencies` are treated as having no deps.
+    """
+    code_to_q = {normalize_code(q['code']): q for q in questions}
+    codes = sorted(code_to_q.keys())
+
+    in_degree = {c: 0 for c in codes}
+    adj: Dict[str, List[str]] = {c: [] for c in codes}
+
+    for code in codes:
+        for dep in dependencies.get(code, []):
+            if dep in code_to_q:
+                in_degree[code] += 1
+                adj[dep].append(code)
+
+    queue = deque(sorted(c for c in codes if in_degree[c] == 0))
+    result = []
+
+    while queue:
+        node = queue.popleft()
+        result.append(code_to_q[node])
+        for dependent in sorted(adj[node]):
+            in_degree[dependent] -= 1
+            if in_degree[dependent] == 0:
+                queue.append(dependent)
+
+    # Append any remaining (shouldn't happen with a valid DAG)
+    processed = {normalize_code(q['code']) for q in result}
+    result.extend(code_to_q[c] for c in codes if c not in processed)
+
+    return result
+
+
+def build_prior_context(db_path: str, assessment_id: int, question_code: str,
+                         id_entry_pathway: int = None) -> str:
+    """Assemble the prior-context string to inject into a research query.
+
+    Fetches dependency justifications from the correct table(s) and applies
+    any sibling constraint rule from SIBLING_CONSTRAINTS.
+    """
+    code = normalize_code(question_code)
+    is_pathway_q = (code in PATHWAY_DEPENDENCIES and
+                    code not in QUESTION_DEPENDENCIES)
+
+    if is_pathway_q and id_entry_pathway is not None:
+        all_deps = PATHWAY_DEPENDENCIES.get(code, [])
+        regular_deps = [d for d in all_deps if d in QUESTION_DEPENDENCIES]
+        pathway_deps = [d for d in all_deps if d in PATHWAY_DEPENDENCIES]
+        prior = {}
+        prior.update(get_regular_prior_answers(db_path, assessment_id, regular_deps))
+        prior.update(get_pathway_prior_answers(db_path, id_entry_pathway, pathway_deps))
+    else:
+        deps = QUESTION_DEPENDENCIES.get(code, [])
+        prior = get_regular_prior_answers(db_path, assessment_id, deps)
+
+    sibling_rule = None
+    if code in SIBLING_CONSTRAINTS:
+        sc = SIBLING_CONSTRAINTS[code]
+        sib = sc['sibling']
+        if id_entry_pathway is not None and sib in PATHWAY_DEPENDENCIES:
+            sib_ans = get_pathway_prior_answers(db_path, id_entry_pathway, [sib])
+        else:
+            sib_ans = get_regular_prior_answers(db_path, assessment_id, [sib])
+        prior.update(sib_ans)
+        sibling_rule = sc['rule']
+
+    return format_prior_context(prior, sibling_rule)
+
 
 # =============================================================================
 # DATABASE FUNCTIONS - GENERAL
@@ -1041,7 +1224,8 @@ Briefly describe:
 # =============================================================================
 
 def create_research_query(species_name: str, question_code: str, question_text: str,
-                          question_info: str = "", pathway_name: str = None) -> str:
+                          question_info: str = "", pathway_name: str = None,
+                          prior_context: str = "") -> str:
     """Create targeted research query.
 
     Note: question_info from database is IGNORED when Rmd instructions are available,
@@ -1156,6 +1340,9 @@ OUTPUT FORMAT:
 Provide a clear, evidence-based justification.
 """
 
+    if prior_context:
+        query = prior_context + "\n\n" + query
+
     # Note: formal academic register is delivered via tone=Tone.Formal on GPTResearcher.
     # Inline citations and reference list are enforced by the research_report prompt itself.
     return query
@@ -1163,7 +1350,8 @@ Provide a clear, evidence-based justification.
 async def research_justification(species_name: str, question_code: str, question_text: str,
                                  question_info: str = "", pathway_name: str = None,
                                  exclude_domains: List[str] = None,
-                                 track_metrics: bool = True) -> Tuple[str, Optional[QuestionMetrics]]:
+                                 track_metrics: bool = True,
+                                 prior_context: str = "") -> Tuple[str, Optional[QuestionMetrics]]:
     """Research a single justification using GPT Researcher.
 
     Returns:
@@ -1179,6 +1367,9 @@ async def research_justification(species_name: str, question_code: str, question
     if exclude_domains:
         print(f"⛔ Excluding: {', '.join(exclude_domains)}")
 
+    if prior_context:
+        print(f"🔗 Injecting prior context ({len(prior_context)} chars)")
+
     # Initialize metrics
     metrics = QuestionMetrics(
         species_name=species_name,
@@ -1189,7 +1380,8 @@ async def research_justification(species_name: str, question_code: str, question
     ) if track_metrics else None
 
     query = create_research_query(species_name, question_code, question_text,
-                                  question_info, pathway_name)
+                                  question_info, pathway_name,
+                                  prior_context=prior_context)
 
     # Add domain exclusion
     if exclude_domains:
@@ -1305,6 +1497,10 @@ async def process_assessment(db_path: str, assessment_id: int = None,
         if not answers:
             print(f"⚠️  No matching regular questions found for {filter_codes}")
 
+    # Topological sort: process questions in dependency order so prior context
+    # is always written to DB before it is needed by dependent questions.
+    answers = topological_sort_questions(answers, QUESTION_DEPENDENCIES)
+
     # Auto-add all pathways if requested
     if add_all_pathways and process_pathways:
         added = add_pathways_to_assessment(db_path, assessment_id)
@@ -1350,13 +1546,15 @@ async def process_assessment(db_path: str, assessment_id: int = None,
                 continue
 
         try:
+            prior_ctx = build_prior_context(db_path, assessment_id, answer['code'])
             ai_text, metrics = await research_justification(
                 species_name=species_name,
                 question_code=answer['code'],
                 question_text=answer['text'],
                 question_info=answer['info'],
                 exclude_domains=exclude_domains or [],
-                track_metrics=track_costs
+                track_metrics=track_costs,
+                prior_context=prior_ctx
             )
 
             # Record metrics
@@ -1409,6 +1607,9 @@ async def process_assessment(db_path: str, assessment_id: int = None,
                 if not pathway_questions:
                     print(f"⚠️  No matching pathway questions found for {filter_codes}")
 
+            # Sort pathway questions in dependency order
+            pathway_questions = topological_sort_questions(pathway_questions, PATHWAY_DEPENDENCIES)
+
             total = len(pathways) * len(pathway_questions)
             count = 0
 
@@ -1440,6 +1641,9 @@ async def process_assessment(db_path: str, assessment_id: int = None,
                             continue
 
                     try:
+                        pq_prior_ctx = build_prior_context(
+                            db_path, assessment_id, pq['code'],
+                            id_entry_pathway=pathway['idEntryPathway'])
                         ai_text, metrics = await research_justification(
                             species_name=species_name,
                             question_code=pq['code'],
@@ -1447,7 +1651,8 @@ async def process_assessment(db_path: str, assessment_id: int = None,
                             question_info=pq['info'],
                             pathway_name=pathway_name,
                             exclude_domains=exclude_domains or [],
-                            track_metrics=track_costs
+                            track_metrics=track_costs,
+                            prior_context=pq_prior_ctx
                         )
 
                         # Record metrics
