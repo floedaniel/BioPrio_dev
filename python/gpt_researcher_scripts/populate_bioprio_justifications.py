@@ -22,6 +22,7 @@ import shutil
 import time
 from pathlib import Path
 from gpt_researcher import GPTResearcher
+from gpt_researcher.utils.enum import Tone
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass, field
@@ -55,28 +56,26 @@ except ImportError:
 SKIP_EXISTING_JUSTIFICATION = True
 
 # DATABASE PATH - UPDATE THIS IF YOU ADDED PATHWAYS
-DEFAULT_DB_PATH = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\FinnPrio\BioiPRIO_development\databases\ant_test\clean_ants.db"
-
-# Alternative: path to update already existing AI-enhanced database
-# DEFAULT_DB_PATH = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\FinnPrio\BioiPRIO_development\databases\ant_test\clean_ants_ai_enhanced_19_02_2026.db"
+DEFAULT_DB_PATH = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\FinnPrio\BioPRIO_development\databases\ants\ants_Minimal_ai.db"
 
 # Output directory (new copy will be created here)
-DEFAULT_OUTPUT_DIR = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\FinnPrio\BioiPRIO_development\databases\ant_test"
+DEFAULT_OUTPUT_DIR = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\FinnPrio\BioPRIO_development\databases\ants_ai"
 
 # Filter by species identifiers (empty list = process all species)
 # Supports: EPPO codes, scientific names, or GBIF taxon keys ["1315155", "1317433"]
 SPECIES_FILTER = []
 
-# Filter by question code (None = process all questions)
-# Example: QUESTION_FILTER = "EST2"  # Only process EST2
+# Filter by question codes (empty list = process all questions)
+# Example: QUESTION_FILTER = ["EST2"]          # Only process EST2
+# Multiple:  QUESTION_FILTER = ["IMP4.1", "IMP4.2", "IMP4.3"]
 # Pathway questions: "ENT2A", "ENT2B", "ENT3", "ENT4"
-QUESTION_FILTER = None
+QUESTION_FILTER = []
 
 # =============================================================================
 # API Keys - Read from files
-OPENAI_API_KEY_FILE = r"C:\Users\dafl\Desktop\API keys\chatgpt_apikey.txt"
-TAVILY_API_KEY_FILE = r"C:\Users\dafl\Desktop\API keys\Tavily_key.txt"
-
+OPENAI_API_KEY_FILE = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\API keys\tore_vkm_openai.txt"
+TAVILY_API_KEY_FILE = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\API keys\Tavily_key.txt"
+NCBI_API_KEY_FILE   = r"C:\Users\dafl\OneDrive - Folkehelseinstituttet\API keys\NCBI_api_key.txt"
 
 # Load API keys from files
 def load_api_key(file_path: str) -> str:
@@ -90,18 +89,38 @@ def load_api_key(file_path: str) -> str:
 
 os.environ['OPENAI_API_KEY'] = load_api_key(OPENAI_API_KEY_FILE)
 os.environ['TAVILY_API_KEY'] = load_api_key(TAVILY_API_KEY_FILE)
+os.environ['NCBI_API_KEY']   = load_api_key(NCBI_API_KEY_FILE)
 # =============================================================================
 
-# GPT Researcher Configuration
+# GPT Researcher Configuration (for report_type="research_report")
+# Optimized for scientific species risk assessment:
+# - Multi-retriever: Tavily (general) + Semantic Scholar + PubMed Central
+# - APA citation format, source curation, low-temp factual output
 os.environ.update({
+    # LLM roles
+    "FAST_LLM": "openai:gpt-4.1-mini",   # Quick tasks: summarization, sub-queries
+    "SMART_LLM": "openai:gpt-4.1",      # Complex reasoning: report writing
+    "STRATEGIC_LLM": "openai:o3",  # Planning: agent/query selection
+
     "TEMPERATURE": "0.1",
-    "LLM_MODEL": "gpt-4o-mini",
-    "LLM_MAX_TOKENS": "4096",
-    "DEEP_RESEARCH_BREADTH": "3",
-    "DEEP_RESEARCH_DEPTH": "2",
-    "MAX_SEARCH_RESULTS_PER_QUERY": "10",
-    "TOTAL_WORDS": "400",
-    "MAX_ITERATIONS": "8",
+    "REASONING_EFFORT": "medium",
+
+    # Embeddings — text-embedding-3-small has much higher rate limits than ada-002
+    "EMBEDDING": "openai:text-embedding-3-small",
+    "SIMILARITY_THRESHOLD": "0.42",
+
+    # Retrievers — scientific sources first, Tavily as broad fallback
+    "RETRIEVER": "tavily,semantic_scholar,pubmed_central",
+    "SCRAPER": "bs",
+
+    # Research depth
+    "MAX_SEARCH_RESULTS_PER_QUERY": "100",
+    "TOTAL_WORDS": "1200",
+
+    # Output
+    "REPORT_FORMAT": "apa",
+    "CURATE_SOURCES": "true",
+    "LANGUAGE": "english",
 })
 
 # Excluded domains
@@ -462,16 +481,23 @@ def clean_markdown_formatting(text: str) -> str:
     text = re.sub(r'__([^_]+)__', r'\1', text)
     text = re.sub(r'_([^_]+)_', r'\1', text)
 
-    # Remove markdown links
-    text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
+    # Flatten markdown links: HTTP links → "text (url)", non-URL links → text only
+    text = re.sub(r'\[([^\]]+)\]\((https?://[^)]+)\)', r'\1 (\2)', text)
+    text = re.sub(r'\[([^\]]+)\]\((?!https?://)[^)]*\)', r'\1', text)
+    # Flatten inline HTML anchors <a href="url">text</a> → "text (url)"
+    text = re.sub(
+        r'<a\s+[^>]*href=["\'](https?://[^"\']+)["\'][^>]*>([^<]+)</a>',
+        r'\2 (\1)', text, flags=re.IGNORECASE,
+    )
+    # Strip any remaining stray HTML tags
+    text = re.sub(r'</?[a-zA-Z][^>]*>', '', text)
 
     # Remove markdown tables
     text = re.sub(r'^\s*\|[^\n]+\|\s*$', '', text, flags=re.MULTILINE)
     text = re.sub(r'^\s*\|[\s\-:|]+\|\s*$', '', text, flags=re.MULTILINE)
 
-    # Remove bullet points
+    # Remove bullet-point markers only — preserve numbered lines (reference lists)
     text = re.sub(r'^\s*[-*+]\s+', '', text, flags=re.MULTILINE)
-    text = re.sub(r'^\s*\d+\.\s+', '', text, flags=re.MULTILINE)
 
     # Remove code blocks
     text = re.sub(r'```[\s\S]*?```', '', text)
@@ -491,15 +517,13 @@ def clean_markdown_formatting(text: str) -> str:
     for pattern in separators:
         text = re.sub(pattern, '', text, flags=re.MULTILINE | re.DOTALL)
 
-    # Remove common AI introduction phrases
+    # Remove AI boilerplate lines only when the whole line IS a heading/meta line
     intro_patterns = [
-        r'^.*?[Ii]ntroduction.*?$',
-        r'^.*?[Ss]ummary.*?$',
-        r'^.*?[Oo]verview.*?$',
-        r'^This report.*?$',
+        r'^\s*(?:#+\s*)?(?:Introduction|Summary|Overview|Executive Summary)\s*:?\s*$',
+        r'^\s*This report\b.*$',
     ]
     for pattern in intro_patterns:
-        text = re.sub(pattern, '', text, flags=re.MULTILINE)
+        text = re.sub(pattern, '', text, flags=re.MULTILINE | re.IGNORECASE)
 
     # Clean up whitespace
     text = re.sub(r'\n{3,}', '\n\n', text)
@@ -515,31 +539,45 @@ def clean_markdown_formatting(text: str) -> str:
 # =============================================================================
 
 def copy_database(source_path: str, output_dir: str) -> str:
-    """Copy entire source database to new location."""
-    # Get original database name without extension
+    """Copy source database to a versioned, timestamped destination.
+
+    Names follow `{base}_v{NNN}_{ISO8601}.db`, e.g.
+        ants_v003_2026-05-16T10-04-27.db
+
+    Version is auto-incremented based on existing `{base}_v*_*.db` files in
+    `output_dir`. Timestamp uses ISO 8601 with ':' replaced by '-' so the
+    filename is valid on Windows. Both parts together guarantee every run
+    produces a unique, chronologically sortable, reproducible identifier.
+    """
     source_file = Path(source_path)
-    original_name = source_file.stem  # filename without .db
+    original_name = source_file.stem
 
-    # Create timestamp in DD_MM_YYYY format
-    timestamp = datetime.now().strftime("%d_%m_%Y")
+    # Strip any existing versioned suffix first, then the legacy
+    # `_ai_enhanced_...` suffix, to recover a clean base name.
+    base_name = re.sub(r'_v\d+_\d{4}-\d{2}-\d{2}T.*$', '', original_name)
+    base_name = re.sub(r'_ai_enhanced_.*$', '', base_name)
 
-    # Check if source already has _ai_enhanced_ pattern - extract base name
-    if "_ai_enhanced_" in original_name:
-        base_name = original_name.split("_ai_enhanced_")[0]
-    else:
-        base_name = original_name
+    output_dir_path = Path(output_dir)
+    output_dir_path.mkdir(parents=True, exist_ok=True)
 
-    # New name: base_name_ai_enhanced_DD_MM_YYYY.db
-    output_name = f"{base_name}_ai_enhanced_{timestamp}.db"
-    output_path = Path(output_dir) / output_name
+    # Next version: max existing + 1, or 1 if no prior versions exist.
+    existing_versions = []
+    for f in output_dir_path.glob(f"{base_name}_v*_*.db"):
+        m = re.match(rf'{re.escape(base_name)}_v(\d+)_', f.stem)
+        if m:
+            existing_versions.append(int(m.group(1)))
+    next_version = (max(existing_versions) + 1) if existing_versions else 1
 
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    # ISO 8601 timestamp, filesystem-safe (colons -> hyphens).
+    timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
 
-    # Check if source and destination are the same file (re-run on same day)
+    output_name = f"{base_name}_v{next_version:03d}_{timestamp}.db"
+    output_path = output_dir_path / output_name
+
+    # Safety guard: copying a file onto itself corrupts it.
     if source_file.resolve() == output_path.resolve():
-        print(f"\n📋 Using existing database (same-day re-run)...")
-        print(f"   Path: {source_path}")
-        print(f"✅ Working on existing file ({output_path.stat().st_size / 1024:.1f} KB)")
+        print(f"\n📋 Source and destination resolve to the same file; reusing it.")
+        print(f"   Path: {output_path}")
         return str(output_path)
 
     print(f"\n📋 Copying database...")
@@ -549,7 +587,7 @@ def copy_database(source_path: str, output_dir: str) -> str:
     shutil.copy2(source_path, output_path)
 
     if output_path.exists():
-        print(f"✅ Database copied successfully ({output_path.stat().st_size / 1024:.1f} KB)")
+        print(f"✅ Database copied ({output_path.stat().st_size / 1024:.1f} KB)")
     else:
         raise FileNotFoundError(f"Failed to copy database to {output_path}")
 
@@ -667,7 +705,7 @@ def get_assessment_info(db_path: str, assessment_id: int) -> Dict:
             justification = ""
             created_count += 1
 
-        code = f"{grp}{num}.{subgrp}" if subgrp else f"{grp}{num}."
+        code = f"{grp}{num}.{subgrp}" if subgrp else f"{grp}{num}"
         answers.append({
             'idAnswer': id_answer,
             'code': code,
@@ -1042,7 +1080,7 @@ RESEARCH REQUIREMENTS:
 - Provide specific evidence with citations
 - Consider Norwegian/Nordic context (temperate to boreal climate, cold winters)
 - Acknowledge uncertainty when evidence is limited
-- Keep focused and concise (300-400 words)
+- Target ~800 words of substantive content
 
 INSUFFICIENT INFORMATION:
 - If the provided context contains insufficient information to answer the question, explicitly state: "The provided context contains insufficient information to answer the question."
@@ -1118,6 +1156,8 @@ OUTPUT FORMAT:
 Provide a clear, evidence-based justification.
 """
 
+    # Note: formal academic register is delivered via tone=Tone.Formal on GPTResearcher.
+    # Inline citations and reference list are enforced by the research_report prompt itself.
     return query
 
 async def research_justification(species_name: str, question_code: str, question_text: str,
@@ -1159,7 +1199,7 @@ async def research_justification(species_name: str, question_code: str, question
     researcher = GPTResearcher(
         query=query,
         report_type="research_report",
-        tone="formal",
+        tone=Tone.Formal,
         report_source="web",
     )
 
@@ -1235,7 +1275,7 @@ async def process_assessment(db_path: str, assessment_id: int = None,
                              skip_existing: bool = True,
                              track_costs: bool = True,
                              add_all_pathways: bool = False,
-                             question_filter: str = None):
+                             question_filter: List[str] = None):
     """Process assessment: regular questions + pathway questions.
 
     Args:
@@ -1257,14 +1297,13 @@ async def process_assessment(db_path: str, assessment_id: int = None,
     answers = assessment_info['answers']
     assessment_id = assessment_info['idAssessment']
 
-    # Filter to specific question if requested
+    # Filter to specific questions if requested
     if question_filter:
-        # Strip trailing dots for comparison (codes stored as "EST2." but user enters "EST2")
-        filter_code = question_filter.upper().rstrip('.')
-        answers = [a for a in answers if a['code'].upper().rstrip('.') == filter_code]
-        print(f"🔍 Filtering to question: {filter_code}")
+        filter_codes = {c.upper().rstrip('.') for c in question_filter}
+        answers = [a for a in answers if a['code'].upper().rstrip('.') in filter_codes]
+        print(f"🔍 Filtering to questions: {', '.join(sorted(filter_codes))}")
         if not answers:
-            print(f"⚠️  No matching regular question found for {filter_code}")
+            print(f"⚠️  No matching regular questions found for {filter_codes}")
 
     # Auto-add all pathways if requested
     if add_all_pathways and process_pathways:
@@ -1364,11 +1403,11 @@ async def process_assessment(db_path: str, assessment_id: int = None,
 
             # Filter pathway questions if question_filter is set
             if question_filter:
-                filter_code = question_filter.upper().rstrip('.')
+                filter_codes = {c.upper().rstrip('.') for c in question_filter}
                 pathway_questions = [pq for pq in pathway_questions
-                                    if pq['code'].upper().rstrip('.') == filter_code]
+                                    if pq['code'].upper().rstrip('.') in filter_codes]
                 if not pathway_questions:
-                    print(f"⚠️  No matching pathway question found for {filter_code}")
+                    print(f"⚠️  No matching pathway questions found for {filter_codes}")
 
             total = len(pathways) * len(pathway_questions)
             count = 0
@@ -1451,7 +1490,7 @@ async def main(source_db: str = DEFAULT_DB_PATH,
                species_filter: List[str] = None,
                track_costs: bool = None,
                add_all_pathways: bool = False,
-               question_filter: str = None):
+               question_filter: List[str] = None):
     """Main workflow.
 
     Args:
@@ -1516,7 +1555,7 @@ async def main(source_db: str = DEFAULT_DB_PATH,
     if process_pathways:
         print("ℹ️  Will process pathway questions for each selected pathway")
     if effective_question_filter:
-        print(f"🔍 Question filter: {effective_question_filter.upper()} only")
+        print(f"🔍 Question filter: {', '.join(c.upper() for c in effective_question_filter)} only")
 
     # Determine species filter to use (command-line overrides config)
     effective_filter = species_filter if species_filter else (SPECIES_FILTER if SPECIES_FILTER else None)
@@ -1618,8 +1657,8 @@ if __name__ == "__main__":
                        help=f'Custom name for cost report Excel file (default: {COST_REPORT_FILENAME})')
     parser.add_argument('--add-all-pathways', action='store_true',
                        help='Automatically add all available pathways to each assessment before processing')
-    parser.add_argument('--question', type=str, default=None,
-                       help='Process only specific question code (e.g., --question EST2, --question ENT2A)')
+    parser.add_argument('--question', type=str, nargs='+', default=None,
+                       help='Process only specific question codes (e.g., --question EST2 ENT2A IMP4.1)')
 
     args = parser.parse_args()
 
