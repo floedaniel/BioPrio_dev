@@ -401,14 +401,15 @@ class ValuePopulator:
         """Ask a simple yes/no question for boolean sub-questions (IMP2.x, IMP4.x).
 
         Returns ({min: yes_code, likely: yes_code, max: yes_code}, in_tok, out_tok) for YES,
-                ({min: None, likely: None, max: None}, 0, 0) for NO,
+                ({min: None, likely: None, max: None}, in_tok, out_tok) for NO,
                 (None, 0, 0) on error.
         """
+        guidance = []
         try:
             q = get_question_instructions(question_code)
             question_text = f"{q['code']}: {q['text']}"
             guidance = q.get('guidance', [])
-        except KeyError:
+        except Exception:
             question_text = question_code
             guidance = []
 
@@ -452,42 +453,42 @@ class ValuePopulator:
             return None, 0, 0
 
     async def determine_values_with_gpt(
-          self,
-          species_name: str,
-          question_text: str,
-          options: List[Dict],
-          justification: str,
-          question_type: str = "minmax",
-          question_code: str = None,
-          prior_context: str = "",
-      ) -> Tuple[Optional[Dict], int, int]:
-          """
-          Use GPT to determine appropriate min/likely/max values based on justification.
+        self,
+        species_name: str,
+        question_text: str,
+        options: List[Dict],
+        justification: str,
+        question_type: str = "minmax",
+        question_code: str = None,
+        prior_context: str = "",
+    ) -> Tuple[Optional[Dict], int, int]:
+        """
+        Use GPT to determine appropriate min/likely/max values based on justification.
 
-          Uses Rmd-based instructions via build_value_selection_prompt() for comprehensive
-          prompts with options, guidance, and scoring criteria.
+        Uses Rmd-based instructions via build_value_selection_prompt() for comprehensive
+        prompts with options, guidance, and scoring criteria.
 
-          Args:
-              species_name: Scientific name of the species
-              question_text: The question text (unused, kept for compatibility)
-              options: List of option dicts with 'opt', 'text', 'points'
-              justification: The AI-generated justification to analyze
-              question_type: 'minmax' or 'boolean'
-              question_code: Question code (e.g., 'ENT1', 'EST4') - required for Rmd lookup
-              prior_context: Scored upstream values to inject into the prompt (may be empty)
+        Args:
+            species_name: Scientific name of the species
+            question_text: The question text (unused, kept for compatibility)
+            options: List of option dicts with 'opt', 'text', 'points'
+            justification: The AI-generated justification to analyze
+            question_type: 'minmax' or 'boolean'
+            question_code: Question code (e.g., 'ENT1', 'EST4') - required for Rmd lookup
+            prior_context: Scored upstream values to inject into the prompt (may be empty)
 
-          Returns:
-              Tuple of (values_dict, input_tokens, output_tokens) or (None, 0, 0) on error
-          """
-          # Boolean sub-questions (IMP2.x, IMP4.x): route through yes/no path
-          if question_type == 'boolean' and options:
-              yes_code = options[0]['opt']
-              return await self._call_gpt_boolean(justification, question_code, yes_code)
+        Returns:
+            Tuple of (values_dict, input_tokens, output_tokens) or (None, 0, 0) on error
+        """
+        # Boolean sub-questions (IMP2.x, IMP4.x): route through yes/no path
+        if question_type == 'boolean' and options:
+            yes_code = options[0]['opt']
+            return await self._call_gpt_boolean(justification, question_code, yes_code)
 
-          prompt = build_value_selection_prompt(question_code, species_name, justification, options)
-          if prior_context:
-              prompt = prior_context + "\n\n" + prompt
-          return await self._call_gpt_for_values(prompt, options)
+        prompt = build_value_selection_prompt(question_code, species_name, justification, options)
+        if prior_context:
+            prompt = prior_context + "\n\n" + prompt
+        return await self._call_gpt_for_values(prompt, options)
 
     async def _call_gpt_for_values(
         self,
