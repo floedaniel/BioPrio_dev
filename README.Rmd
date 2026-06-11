@@ -34,6 +34,23 @@ shiny::runApp()        # or: source("START_APP.R")
 
 On startup, select a SQLite `.db` file containing species and assessment data.
 
+## New Machine Setup
+
+Cloning the repo gives you the app code but **not** the database or the Python environment (both are gitignored). To get fully running:
+
+1. **Clone + install R (≥ 4.0).** Launch the app once; `global.R` auto-installs all R packages.
+2. **Copy a `.db` file** to the machine separately (USB, OneDrive, file share) and select it at startup — databases are never committed.
+3. **Recreate the Python environment** (only if using the AI scripts):
+
+```{bash}
+cd python
+python -m venv .venv
+# PowerShell: .venv/Scripts/Activate.ps1   |   Unix/macOS: source .venv/bin/activate
+pip install -r requirements-lock.txt
+```
+
+`requirements-lock.txt` is a complete pinned freeze of the working environment (both the GPT Researcher and SQuAI pipelines, ~2 GB including torch). It targets **Windows + Python 3.11**; for another OS or Python version, regenerate it. API keys and any hardcoded script paths must also match the new machine.
+
 ## AI-Assisted Justifications (optional)
 
 Python scripts (≥ 3.9) generate scientific justifications and values for assessment answers. API keys (OpenAI, Tavily) are read from external files, never the repo.
