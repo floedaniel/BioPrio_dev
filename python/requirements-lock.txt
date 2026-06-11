@@ -1,8 +1,7 @@
-# BioPRIO Python dependencies -- PINNED LOCK FILE
-# Full working environment for the GPT Researcher pipeline (populate_bioprio_* scripts).
-# Pins every installed package EXCEPT the SQuAI local-RAG / ML stack
-# (torch, transformers, sentence-transformers, faiss-cpu, scikit-learn, scipy,
-#  sympy, networkx, accelerate, safetensors, rank-bm25, mpmath, threadpoolctl).
+# BioPRIO Python dependencies -- COMPLETE PINNED LOCK FILE
+# Full working environment: BOTH the GPT Researcher pipeline AND the
+# SQuAI local-RAG stack (torch, transformers, sentence-transformers, faiss).
+# This is the entire .venv frozen -- nothing omitted. ~2GB+ download (torch).
 # Generated from a known-working .venv.
 #
 # New machine setup (run inside the python/ folder):
@@ -11,6 +10,7 @@
 #   pip install -r requirements-lock.txt
 #
 # Target: Windows + Python 3.11 (includes pywin32). For another OS/Python, regenerate.
+accelerate==1.13.0
 aiofiles==25.1.0
 aiohappyeyeballs==2.6.1
 aiohttp==3.13.3
@@ -38,6 +38,7 @@ docopt==0.6.2
 duckduckgo_search==8.1.1
 emoji==2.15.0
 et_xmlfile==2.0.0
+faiss-cpu==1.13.2
 fastapi==0.129.0
 fastuuid==0.14.0
 feedparser==6.0.12
@@ -62,8 +63,8 @@ importlib_metadata==8.7.1
 Jinja2==3.1.6
 jiter==0.13.0
 joblib==1.5.3
-json_repair==0.58.0
 json5==0.13.0
+json_repair==0.58.0
 jsonpatch==1.33
 jsonpointer==3.0.0
 jsonschema==4.26.0
@@ -96,9 +97,11 @@ mcp==1.26.0
 md2pdf==3.1.0
 mdurl==0.1.2
 mistune==3.2.0
+mpmath==1.3.0
 multidict==6.7.1
 mypy_extensions==1.1.0
 nest-asyncio==1.6.0
+networkx==3.6.1
 nltk==3.9.2
 numba==0.63.1
 numpy==2.2.6
@@ -116,8 +119,8 @@ propcache==0.4.1
 psutil==7.2.2
 pycparser==3.0
 pydantic==2.12.5
-pydantic_core==2.41.5
 pydantic-settings==2.13.0
+pydantic_core==2.41.5
 pydyf==0.12.1
 Pygments==2.19.2
 PyJWT==2.11.0
@@ -135,6 +138,7 @@ python-multipart==0.0.22
 python-oxmsg==0.0.2
 pywin32==311
 PyYAML==6.0.3
+rank-bm25==0.2.2
 RapidFuzz==3.14.3
 referencing==0.37.0
 regex==2026.1.15
@@ -142,7 +146,12 @@ requests==2.32.5
 requests-toolbelt==1.0.0
 rich==14.3.2
 rpds-py==0.30.0
+safetensors==0.7.0
+scikit-learn==1.8.0
+scipy==1.17.1
 semanticscholar==0.11.0
+sentence-transformers==5.3.0
+setuptools==82.0.0
 sgmllib3k==1.0.0
 shellingham==1.5.4
 six==1.17.0
@@ -151,17 +160,21 @@ soupsieve==2.8.3
 SQLAlchemy==2.0.46
 sse-starlette==3.2.0
 starlette==0.52.1
+sympy==1.14.0
 tenacity==9.1.4
+threadpoolctl==3.6.0
 tiktoken==0.12.0
 tinycss2==1.5.1
 tinyhtml5==2.0.0
 tokenizers==0.22.2
+torch==2.11.0
 tqdm==4.67.3
+transformers==5.3.0
 typer==0.24.0
 typer-slim==0.24.0
-typing_extensions==4.15.0
 typing-inspect==0.9.0
 typing-inspection==0.4.2
+typing_extensions==4.15.0
 unstructured==0.20.2
 unstructured-client==0.42.10
 urllib3==2.6.3
